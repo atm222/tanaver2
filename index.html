@@ -10,6 +10,11 @@
   :root {
     --ok: #1b8a4b; --err: #c0392b; --dup: #b8860b;
     --pending: #555; --bg: #f4f5f7; --card: #fff; --line: #e0e3e8;
+    /* ステータス色（枠・周辺オーバーレイ用） */
+    --edge-wait:#dfe6ec; --ov-wait:rgba(130,140,150,0.16);
+    --edge-ok:#1FB255;   --ov-ok:rgba(28,178,85,0.30);
+    --edge-dup:#E0A21A;  --ov-dup:rgba(224,162,26,0.34);
+    --edge-err:#EA4335;  --ov-err:rgba(234,67,53,0.34);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
@@ -18,17 +23,43 @@
   }
   header { padding: 12px 16px; font-size: 18px; font-weight: 700; background: #222; color: #fff; }
   main { padding: 12px; max-width: 560px; margin: 0 auto; }
-  #reader { width: 100%; border-radius: 12px; overflow: hidden; background: #000; }
+
+  /* カメラ表示（相対配置＋はみ出し隠し。周辺オーバーレイのため） */
+  .cam { position: relative; width: 100%; aspect-ratio: 3 / 4; border-radius: 12px; overflow: hidden; background: #000; }
+  #reader { position: absolute; inset: 0; }
+  #reader video { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
+
+  /* 走査枠＋周辺の半透明ステータス色（要求1・要求2） */
+  #scan-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none;
+    display: flex; align-items: center; justify-content: center; }
+  .scanbox { position: relative; width: 62%; max-width: 280px; aspect-ratio: 1;
+    /* 走査枠の外側（周辺のカメラ映像）をステータス色で半透明に覆う */
+    box-shadow: 0 0 0 100vmax var(--ov, var(--ov-wait));
+    transition: box-shadow .18s ease; }
+  .corner { position: absolute; width: 36px; height: 36px;
+    border: 8px solid var(--edge, var(--edge-wait)); transition: border-color .18s ease; }
+  .corner.tl { top: -3px; left: -3px; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
+  .corner.tr { top: -3px; right: -3px; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
+  .corner.bl { bottom: -3px; left: -3px; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
+  .corner.br { bottom: -3px; right: -3px; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
+  /* 状態ごとの色（認識・登録中・成功＝緑／重複＝黄／失敗＝赤／待機＝グレー） */
+  #scan-overlay[data-state="wait"] .scanbox { --ov: var(--ov-wait); --edge: var(--edge-wait); }
+  #scan-overlay[data-state="proc"] .scanbox,
+  #scan-overlay[data-state="ok"]   .scanbox { --ov: var(--ov-ok);   --edge: var(--edge-ok); }
+  #scan-overlay[data-state="dup"]  .scanbox { --ov: var(--ov-dup);  --edge: var(--edge-dup); }
+  #scan-overlay[data-state="err"]  .scanbox { --ov: var(--ov-err);  --edge: var(--edge-err); }
+
   .status {
-    margin: 10px 0; padding: 12px 14px; border-radius: 10px; font-weight: 600;
-    font-size: 15px; text-align: center; color: #fff; background: var(--pending);
-    min-height: 20px;
+    margin: 10px 0; padding: 14px 14px; border-radius: 10px; font-weight: 700;
+    font-size: 16px; text-align: center; color: #fff; background: var(--pending);
+    min-height: 22px; word-break: break-all;
   }
   .status.ok { background: var(--ok); }
   .status.err { background: var(--err); }
   .status.dup { background: var(--dup); }
   .status.pending { background: var(--pending); }
-  .row { display: flex; gap: 8px; margin: 10px 0; }
+
+  .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
   button {
     flex: 1; padding: 14px; font-size: 16px; font-weight: 700; border: none;
     border-radius: 10px; color: #fff; background: #2d6cdf; cursor: pointer;
@@ -36,6 +67,14 @@
   button.stop { background: #777; }
   button.list { background: #4a4a4a; }
   button:active { opacity: .85; }
+
+  /* 音量コントロール（要求：通知音量の強化） */
+  .row.vol { gap: 6px; }
+  .vol-label { flex: 0 0 auto; font-size: 13px; font-weight: 700; color: #555; }
+  .vbtn { flex: 1; padding: 10px 4px; font-size: 14px; background: #eef1f5; color: #333; border: 2px solid transparent; }
+  .vbtn.active { background: #2d6cdf; color: #fff; }
+  .vbtn.test { flex: 1.4; background: #4a4a4a; color: #fff; }
+
   .note { font-size: 12px; color: #777; margin: 6px 0; }
   table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; }
   th, td { padding: 8px 6px; font-size: 13px; text-align: left; border-bottom: 1px solid var(--line); }
@@ -50,7 +89,15 @@
 <body>
 <header>📦 QR棚卸</header>
 <main>
-  <div id="reader"></div>
+  <div class="cam">
+    <div id="reader"></div>
+    <div id="scan-overlay" data-state="wait">
+      <div class="scanbox">
+        <span class="corner tl"></span><span class="corner tr"></span>
+        <span class="corner bl"></span><span class="corner br"></span>
+      </div>
+    </div>
+  </div>
 
   <div id="status" class="status pending">起動中…</div>
 
@@ -58,6 +105,15 @@
     <button id="btnToggle" class="stop">スキャン停止</button>
     <button id="btnList" class="list">スキャン一覧</button>
   </div>
+
+  <div class="row vol">
+    <span class="vol-label">音量</span>
+    <button class="vbtn" data-vol="high">大</button>
+    <button class="vbtn" data-vol="mid">中</button>
+    <button class="vbtn" data-vol="low">小</button>
+    <button id="btnTest" class="vbtn test">テスト音</button>
+  </div>
+
   <div id="vibNote" class="note" style="display:none;">
     ※この端末は振動非対応のため、画面表示でお知らせします。
   </div>
@@ -75,29 +131,50 @@
 <script>
   // ===== 設定 =====================================================
   // GASをWebアプリとしてデプロイしたURL（/exec で終わるもの）に書き換える
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwVKU0yYNb4v2VhaTcDAq_lI8j2dYwxgpUZ1VkpGMFukv_titrQAuRrzWn_x71sieY4/exec'; // 例: https://script.google.com/macros/s/XXXXXXXX/exec に置き換える
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwVKU0yYNb4v2VhaTcDAq_lI8j2dYwxgpUZ1VkpGMFukv_titrQAuRrzWn_x71sieY4/exec';
   // GAS側で TOKEN を設定した場合のみ同じ値を入れる（未使用なら空のまま）
-  const TOKEN = 'nike2026'; // GAS側と一致させる。未使用なら空文字 ''
-  const DEDUP_MS = 3000; // 同一コードの重複登録を防ぐ時間(ミリ秒)
+  const TOKEN = 'nike2026';
+  const DEDUP_MS = 3000;   // 同一コードの連打抑止時間(ミリ秒)
+  const RESET_MS = 3000;   // 結果表示→読み取り待ちへ戻すまでの時間(要求3)
   // ================================================================
 
   const statusEl = document.getElementById('status');
   const listEl   = document.getElementById('list');
   const btnToggle = document.getElementById('btnToggle');
   const btnList   = document.getElementById('btnList');
+  const overlay  = document.getElementById('scan-overlay');
 
   const vibrateSupported = 'vibrate' in navigator;
   if (!vibrateSupported) document.getElementById('vibNote').style.display = 'block';
 
-  let items = [];          // 画面表示用のスキャン一覧
-  let counter = 0;         // 読み取り順
-  let lastContent = null, lastAt = 0; // 連打防止用
+  let items = [];
+  let counter = 0;
+  let lastContent = null, lastAt = 0;
   let scanner = null, running = false;
-  const registered = new Set(); // 登録済みQR内容（二重登録の防止）
+  const registered = new Set();     // 登録済みQR内容（二重登録の防止）
+  let resetTimer = null;            // 待機へ戻すタイマー
 
+  // ===== ステータス表示（枠色・周辺色・下部バー・自動復帰を一元管理）=====
   function setStatus(msg, type) {
     statusEl.textContent = msg;
     statusEl.className = 'status ' + (type || 'pending');
+  }
+  // kind: 'wait' | 'proc' | 'ok' | 'dup' | 'err'
+  function setState(kind, msg) {
+    clearTimeout(resetTimer);
+    overlay.dataset.state = kind;
+    const barType = (kind === 'ok' || kind === 'proc') ? 'ok'
+                  : kind === 'dup' ? 'dup'
+                  : kind === 'err' ? 'err' : 'pending';
+    setStatus(msg, barType);
+    // 結果（成功・重複・失敗）は3秒表示して待機へ戻す（要求3）
+    if (kind === 'ok' || kind === 'dup' || kind === 'err') {
+      resetTimer = setTimeout(toWaiting, RESET_MS);
+    }
+  }
+  function toWaiting() {
+    overlay.dataset.state = 'wait';
+    setStatus('読み取り待ち … QRコードをかざしてください', 'pending');
   }
 
   function formatNow() {
@@ -132,41 +209,56 @@
     if (vibrateSupported) navigator.vibrate(pattern || 200);
   }
 
-  // ===== 音（Web Audio API・音声ファイル不要） =====
+  // ===== 音（Web Audio API・音声ファイル不要／音量強化）=====
   let audioCtx = null;
-  // スマホは最初のユーザー操作があるまで音を鳴らせないため、初回タップで有効化
+  const VOL = { high: 0.95, mid: 0.55, low: 0.28 };   // 音量レベル
+  let volLevel = 'high';
+  try { volLevel = localStorage.getItem('qrVol') || 'high'; } catch (e) {}
+
   function initAudio() {
     try {
       if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       if (audioCtx.state === 'suspended') audioCtx.resume();
     } catch (e) {}
   }
-  // freq:周波数(Hz) dur:長さ(秒) vol:音量
-  function tone(freq, dur, vol) {
+  // 騒音下でも通りやすいよう square 波＋高めの音量で鳴らす
+  function tone(freq, dur, vol, type) {
     if (!audioCtx) return;
     try {
       const osc = audioCtx.createOscillator();
       const gain = audioCtx.createGain();
-      osc.type = 'sine';
+      osc.type = type || 'square';
       osc.frequency.value = freq;
       osc.connect(gain); gain.connect(audioCtx.destination);
       const t = audioCtx.currentTime;
+      const v = Math.min(0.98, vol || 0.3);
       gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(vol || 0.3, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(v, t + 0.008);
       gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
       osc.start(t);
       osc.stop(t + dur + 0.02);
     } catch (e) {}
   }
-  function beepOk()  { tone(880, 0.15, 0.35); }                 // 「ピッ」高音
-  function beepErr() { tone(300, 0.18, 0.35); setTimeout(() => tone(300, 0.18, 0.35), 200); } // 低音×2
-  function beepDup() { tone(520, 0.12, 0.30); }                 // 「ポッ」中音（重複）
+  function beepOk()  { const v = VOL[volLevel]; tone(988, 0.11, v, 'square'); setTimeout(() => tone(1319, 0.15, v, 'square'), 90); } // 上昇2音
+  function beepDup() { const v = VOL[volLevel]; tone(660, 0.10, v, 'square'); setTimeout(() => tone(660, 0.10, v, 'square'), 150); } // 同音2回
+  function beepErr() { const v = VOL[volLevel]; tone(300, 0.20, v, 'square'); setTimeout(() => tone(300, 0.20, v, 'square'), 210); } // 低音2回
+
+  // 音量UI
+  const vbtns = Array.from(document.querySelectorAll('.vbtn[data-vol]'));
+  function updateVolUI() { vbtns.forEach(b => b.classList.toggle('active', b.dataset.vol === volLevel)); }
+  vbtns.forEach(b => b.addEventListener('click', () => {
+    volLevel = b.dataset.vol;
+    try { localStorage.setItem('qrVol', volLevel); } catch (e) {}
+    updateVolUI(); initAudio(); beepOk();      // 選択時に試聴
+  }));
+  document.getElementById('btnTest').addEventListener('click', () => { initAudio(); beepOk(); });
+  updateVolUI();
 
   // 初回タップ／クリックで音を有効化
   document.addEventListener('touchstart', initAudio, { once: true });
   document.addEventListener('click', initAudio, { once: true });
 
-  // QR読み取り成功時のコールバック（常時連続で呼ばれる）
+  // ===== QR読み取り成功時のコールバック（常時連続で呼ばれる）=====
   function onScan(decodedText) {
     const now = Date.now();
     // 同じコードがカメラに映り続ける間は一定時間に1回だけ処理（連打・連続音の防止）
@@ -174,15 +266,16 @@
     lastContent = decodedText;
     lastAt = now;
 
-    // 既に登録済みのQRは登録しない
+    // 既に登録済みのQRは登録しない（黄・重複音）
     if (registered.has(decodedText)) {
-      setStatus('↺ 登録済み（重複のため登録しません）: ' + decodedText, 'dup');
-      beepDup(); vibrate(60);
+      setState('dup', '↺ 登録済み（重複のため登録しません）: ' + decodedText);
+      beepDup(); vibrate([40, 60, 40]);
       return;
     }
 
-    vibrate(200);  // 振動
-    beepOk();      // 「ピッ」と鳴らす
+    // 認識＝緑。登録処理へ（要求2：認識時に緑）
+    setState('proc', '● 認識 … 登録中: ' + decodedText);
+    beepOk(); vibrate(180);
     register(decodedText);
   }
 
@@ -191,12 +284,10 @@
     const item = { order: ++counter, time: formatNow(), content, status: '登録中' };
     items.unshift(item);
     render();
-    setStatus('登録中… ' + content, 'pending');
 
     try {
       const res = await fetch(GAS_URL, {
         method: 'POST',
-        // text/plain にすることでCORSプリフライトを回避（GAS Webアプリの定石）
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
         body: JSON.stringify({ content, device: navigator.userAgent, token: TOKEN })
       });
@@ -205,21 +296,20 @@
         item.status = '登録成功';
         registered.add(content);
         if (data.timestamp) item.time = data.timestamp;
-        setStatus('✓ 登録成功: ' + content, 'ok');
+        setState('ok', '✓ 登録成功: ' + content);
       } else if (data.duplicate) {
-        // 既にシートに存在 → 登録せず、一覧の仮表示も取り消す
-        items = items.filter(x => x !== item);
+        items = items.filter(x => x !== item);   // 仮表示を取り消し
         registered.add(content);
-        setStatus('↺ 登録済み（重複のため登録しません）: ' + content, 'dup');
+        setState('dup', '↺ 登録済み（重複のため登録しません）: ' + content);
         beepDup();
       } else {
         item.status = '登録失敗';
-        setStatus('✗ 登録失敗: ' + content + '（' + (data.error || '') + '）', 'err');
+        setState('err', '✗ 登録失敗: ' + content + '（' + (data.error || '') + '）');
         beepErr(); vibrate([100, 80, 100]);
       }
     } catch (err) {
       item.status = '登録失敗';
-      setStatus('✗ 登録失敗（通信エラー）: ' + content, 'err');
+      setState('err', '✗ 登録失敗（通信エラー）: ' + content);
       beepErr(); vibrate([100, 80, 100]);
     }
     render();
@@ -237,10 +327,10 @@
           order: total - i, time: r.timestamp, content: r.content, status: r.status
         }));
         counter = total;
-        // 取得済みの内容を登録済みセットに反映（以後の重複を即判定）
         data.rows.forEach(r => registered.add(String(r.content)));
         render();
         setStatus('スプレッドシートの最新一覧を表示しました', 'ok');
+        setTimeout(toWaiting, RESET_MS);
       } else {
         setStatus('一覧取得に失敗しました', 'err');
       }
@@ -252,19 +342,19 @@
   // ===== スキャン開始/停止 =====
   async function startScan() {
     if (running) return;
-    initAudio(); // 音を有効化
+    initAudio();
     scanner = scanner || new Html5Qrcode('reader');
     try {
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10, qrbox: { width: 250, height: 250 } },
+        { fps: 10 },                 // qrbox は指定せず全画面走査（枠は自前オーバーレイで描画）
         onScan,
-        () => {} // 読み取り失敗（フレーム毎）は無視
+        () => {}
       );
       running = true;
       btnToggle.textContent = 'スキャン停止';
       btnToggle.className = 'stop';
-      setStatus('スキャン中… QRコードをかざしてください', 'pending');
+      toWaiting();
     } catch (err) {
       setStatus('カメラを起動できません: ' + err, 'err');
     }
@@ -276,6 +366,8 @@
     running = false;
     btnToggle.textContent = 'スキャン開始';
     btnToggle.className = '';
+    clearTimeout(resetTimer);
+    overlay.dataset.state = 'wait';
     setStatus('停止中', 'pending');
   }
 
