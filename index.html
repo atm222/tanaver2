@@ -4,378 +4,763 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
 <title>QR棚卸</title>
-<!-- QR読み取りライブラリ (html5-qrcode) -->
 <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
 <style>
-  :root {
-    --ok: #1b8a4b; --err: #c0392b; --dup: #b8860b;
-    --pending: #555; --bg: #f4f5f7; --card: #fff; --line: #e0e3e8;
-    /* ステータス色（枠・周辺オーバーレイ用） */
-    --edge-wait:#dfe6ec; --ov-wait:rgba(130,140,150,0.16);
-    --edge-ok:#1FB255;   --ov-ok:rgba(28,178,85,0.30);
-    --edge-dup:#E0A21A;  --ov-dup:rgba(224,162,26,0.34);
-    --edge-err:#EA4335;  --ov-err:rgba(234,67,53,0.34);
-  }
+  :root { --c: #14538f; --fg: #fff; }
+  body[data-state="waiting"]    { --c: #14538f; --fg: #fff; }
+  body[data-state="processing"] { --c: #d97a00; --fg: #fff; }
+  body[data-state="ok"]         { --c: #0f8f45; --fg: #fff; }
+  body[data-state="dup"]        { --c: #f2c200; --fg: #2a2200; }
+  body[data-state="err"]        { --c: #cc2b1d; --fg: #fff; }
+  body[data-state="stopped"]    { --c: #5c6470; --fg: #fff; }
+
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   body {
     margin: 0; font-family: system-ui, -apple-system, "Hiragino Sans", sans-serif;
-    background: var(--bg); color: #1a1a1a;
+    background: var(--c); color: var(--fg);
+    transition: background-color .12s linear; min-height: 100vh;
   }
-  header { padding: 12px 16px; font-size: 18px; font-weight: 700; background: #222; color: #fff; }
-  main { padding: 12px; max-width: 560px; margin: 0 auto; }
-
-  /* カメラ表示（相対配置＋はみ出し隠し。周辺オーバーレイのため） */
-  .cam { position: relative; width: 100%; aspect-ratio: 3 / 4; border-radius: 12px; overflow: hidden; background: #000; }
-  #reader { position: absolute; inset: 0; }
-  #reader video { width: 100% !important; height: 100% !important; object-fit: cover; display: block; }
-
-  /* 走査枠＋周辺の半透明ステータス色（要求1・要求2） */
-  #scan-overlay { position: absolute; inset: 0; z-index: 2; pointer-events: none;
-    display: flex; align-items: center; justify-content: center; }
-  .scanbox { position: relative; width: 62%; max-width: 280px; aspect-ratio: 1;
-    /* 走査枠の外側（周辺のカメラ映像）をステータス色で半透明に覆う */
-    box-shadow: 0 0 0 100vmax var(--ov, var(--ov-wait));
-    transition: box-shadow .18s ease; }
-  .corner { position: absolute; width: 36px; height: 36px;
-    border: 8px solid var(--edge, var(--edge-wait)); transition: border-color .18s ease; }
-  .corner.tl { top: -3px; left: -3px; border-right: none; border-bottom: none; border-top-left-radius: 6px; }
-  .corner.tr { top: -3px; right: -3px; border-left: none; border-bottom: none; border-top-right-radius: 6px; }
-  .corner.bl { bottom: -3px; left: -3px; border-right: none; border-top: none; border-bottom-left-radius: 6px; }
-  .corner.br { bottom: -3px; right: -3px; border-left: none; border-top: none; border-bottom-right-radius: 6px; }
-  /* 状態ごとの色（認識・登録中・成功＝緑／重複＝黄／失敗＝赤／待機＝グレー） */
-  #scan-overlay[data-state="wait"] .scanbox { --ov: var(--ov-wait); --edge: var(--edge-wait); }
-  #scan-overlay[data-state="proc"] .scanbox,
-  #scan-overlay[data-state="ok"]   .scanbox { --ov: var(--ov-ok);   --edge: var(--edge-ok); }
-  #scan-overlay[data-state="dup"]  .scanbox { --ov: var(--ov-dup);  --edge: var(--edge-dup); }
-  #scan-overlay[data-state="err"]  .scanbox { --ov: var(--ov-err);  --edge: var(--edge-err); }
-
-  .status {
-    margin: 10px 0; padding: 14px 14px; border-radius: 10px; font-weight: 700;
-    font-size: 16px; text-align: center; color: #fff; background: var(--pending);
-    min-height: 22px; word-break: break-all;
+  header { background: rgba(0,0,0,.38); color: #fff; padding: 8px 12px; }
+  .hrow { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+  .htitle { font-size: 15px; font-weight: 800; }
+  /* 送信状況バッジ（背景色とは独立。スキャンの邪魔をしない） */
+  #netBadge {
+    font-size: 13px; font-weight: 800; padding: 5px 10px; border-radius: 999px;
+    background: #0f8f45; color: #fff; white-space: nowrap;
   }
-  .status.ok { background: var(--ok); }
-  .status.err { background: var(--err); }
-  .status.dup { background: var(--dup); }
-  .status.pending { background: var(--pending); }
+  #netBadge.wait { background: #d97a00; }
+  #netBadge.off  { background: #cc2b1d; }
+  #netBadge.send { background: #1f6feb; }
+  #counts { font-size: 12px; opacity: .92; margin-top: 4px; }
 
-  .row { display: flex; gap: 8px; margin: 10px 0; align-items: center; }
-  button {
-    flex: 1; padding: 14px; font-size: 16px; font-weight: 700; border: none;
-    border-radius: 10px; color: #fff; background: #2d6cdf; cursor: pointer;
+  main { padding: 10px; max-width: 620px; margin: 0 auto; }
+
+  #modeRow { display: flex; gap: 8px; margin-bottom: 10px; }
+  #modeRow button {
+    flex: 1; padding: 14px 6px; font-size: 16px; font-weight: 800;
+    border: 3px solid rgba(255,255,255,.75); border-radius: 12px;
+    background: rgba(0,0,0,.18); color: var(--fg); cursor: pointer;
   }
-  button.stop { background: #777; }
-  button.list { background: #4a4a4a; }
-  button:active { opacity: .85; }
+  #modeRow button.sel { background: #fff; color: #16202c; border-color: #fff; }
 
-  /* 音量コントロール（要求：通知音量の強化） */
-  .row.vol { gap: 6px; }
-  .vol-label { flex: 0 0 auto; font-size: 13px; font-weight: 700; color: #555; }
-  .vbtn { flex: 1; padding: 10px 4px; font-size: 14px; background: #eef1f5; color: #333; border: 2px solid transparent; }
-  .vbtn.active { background: #2d6cdf; color: #fff; }
-  .vbtn.test { flex: 1.4; background: #4a4a4a; color: #fff; }
+  #camWrap {
+    position: relative; border-radius: 14px; overflow: hidden; background: #000;
+    border: 10px solid #fff; box-shadow: 0 0 0 6px rgba(255,255,255,.25);
+    transition: border-color .12s linear, box-shadow .12s linear;
+  }
+  body[data-state="ok"] #camWrap, body[data-state="dup"] #camWrap, body[data-state="err"] #camWrap {
+    border-width: 16px; border-color: var(--fg); box-shadow: 0 0 0 10px rgba(255,255,255,.55);
+  }
+  #reader { width: 100%; }
+  #reader video { width: 100% !important; display: block; }
 
-  .note { font-size: 12px; color: #777; margin: 6px 0; }
-  table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; }
-  th, td { padding: 8px 6px; font-size: 13px; text-align: left; border-bottom: 1px solid var(--line); }
-  th { background: #efefef; }
-  td.s-ok { color: var(--ok); font-weight: 700; }
-  td.s-err { color: var(--err); font-weight: 700; }
-  td.s-pending { color: var(--pending); }
+  #hidPane { border: 6px dashed rgba(255,255,255,.6); border-radius: 14px; padding: 14px; text-align: center; background: rgba(0,0,0,.14); }
+  #hidState { font-size: 17px; font-weight: 800; margin-bottom: 10px; }
+  #hidInput { width: 100%; padding: 14px; font-size: 20px; font-weight: 700; border: none; border-radius: 10px; text-align: center; color: #16202c; }
+  .hint { font-size: 12px; opacity: .9; margin-top: 8px; line-height: 1.6; text-align: left; }
+
+  #panel { margin: 10px 0; padding: 14px 12px; border-radius: 14px; background: rgba(0,0,0,.22); text-align: center; }
+  body[data-state="dup"] #panel { background: rgba(0,0,0,.12); }
+  #icon { font-size: 68px; line-height: 1; font-weight: 900; }
+  #label { font-size: 30px; font-weight: 900; margin-top: 4px; letter-spacing: .04em; }
+  #detail { font-size: 15px; font-weight: 600; margin-top: 6px; opacity: .95; word-break: break-all; min-height: 18px; }
+  body[data-state="processing"] #panel { animation: blink .7s ease-in-out infinite alternate; }
+  @keyframes blink { from { opacity: .55; } to { opacity: 1; } }
+  @media (prefers-reduced-motion: reduce) { #panel { animation: none !important; } }
+
+  .row { display: flex; gap: 8px; margin: 8px 0; }
+  button { flex: 1; padding: 15px 8px; font-size: 16px; font-weight: 800; border: none; border-radius: 12px; color: #16202c; background: #fff; cursor: pointer; }
+  button:active { transform: scale(.98); }
+  button.ghost { background: rgba(255,255,255,.22); color: var(--fg); border: 2px solid rgba(255,255,255,.7); }
+  button.on { background: #ffe680; color: #3a2c00; }
+  .vol { display: flex; gap: 6px; margin: 8px 0; }
+  .vol button { padding: 12px 4px; font-size: 15px; }
+  .vol button.sel { background: #16202c; color: #fff; }
+  .cap { font-size: 12px; font-weight: 700; opacity: .9; margin: 10px 0 2px; }
+  input[type=range] { width: 100%; height: 34px; }
+
+  #listWrap { display: none; margin-top: 10px; }
+  table { width: 100%; border-collapse: collapse; background: #fff; color: #1a1a1a; border-radius: 10px; overflow: hidden; }
+  th, td { padding: 8px 6px; font-size: 13px; text-align: left; border-bottom: 1px solid #e0e3e8; }
+  th { background: #eef0f3; }
+  td.s-sent { color: #0f8f45; font-weight: 700; }
+  td.s-queued { color: #d97a00; font-weight: 700; }
+  td.s-dup { color: #9a7b00; font-weight: 700; }
   .content-cell { word-break: break-all; }
-  .empty { color: #999; text-align: center; padding: 16px; }
+  .empty { color: #888; text-align: center; padding: 16px; }
+  .note { font-size: 12px; opacity: .9; margin: 6px 0; line-height: 1.6; }
+
+  /* ===== 未送信ゼロになるまで出し続ける警告バー ===== */
+  body.has-unsent { padding-bottom: 104px; }
+  #alertBar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999;
+    display: none; align-items: center; gap: 10px;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+    background: #cc2b1d; color: #fff; border-top: 4px solid #fff;
+    box-shadow: 0 -6px 18px rgba(0,0,0,.4);
+  }
+  #alertBar.show { display: flex; animation: alertPulse 1.3s ease-in-out infinite alternate; }
+  @keyframes alertPulse { from { background: #cc2b1d; } to { background: #8e1b11; } }
+  @media (prefers-reduced-motion: reduce) { #alertBar.show { animation: none; } }
+  #alertText { flex: 1; font-size: 17px; font-weight: 900; line-height: 1.3; }
+  #alertText small { display: block; font-size: 12px; font-weight: 700; opacity: .95; margin-top: 3px; }
+  #alertBar button { flex: 0 0 auto; padding: 13px 14px; font-size: 15px; background: #fff; color: #8e1b11; }
+  #doneBar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 9998; display: none;
+    padding: 15px 12px calc(15px + env(safe-area-inset-bottom));
+    background: #0f8f45; color: #fff; font-size: 18px; font-weight: 900; text-align: center;
+  }
+  #doneBar.show { display: block; }
 </style>
 </head>
-<body>
-<header>📦 QR棚卸</header>
+<body data-state="stopped">
+<header>
+  <div class="hrow">
+    <span class="htitle">📦 QR棚卸</span>
+    <span id="netBadge">送信待機</span>
+  </div>
+  <div id="counts">読取 0 件 ／ 未送信 0 件</div>
+</header>
+
 <main>
-  <div class="cam">
-    <div id="reader"></div>
-    <div id="scan-overlay" data-state="wait">
-      <div class="scanbox">
-        <span class="corner tl"></span><span class="corner tr"></span>
-        <span class="corner bl"></span><span class="corner br"></span>
-      </div>
+  <div id="modeRow">
+    <button id="modeCam" class="sel">📷 カメラ</button>
+    <button id="modeHid">🔫 リーダー</button>
+  </div>
+
+  <div id="camWrap"><div id="reader"></div></div>
+
+  <div id="hidPane" style="display:none;">
+    <div id="hidState">リーダーの読み取り待ち</div>
+    <input id="hidInput" type="text" inputmode="text" autocomplete="off"
+           autocapitalize="off" autocorrect="off" spellcheck="false"
+           placeholder="ここに読み取り結果が入ります" />
+    <div class="row" style="margin-top:8px;">
+      <button id="btnManual" class="ghost">入力内容を登録</button>
+      <button id="btnClear" class="ghost">消去</button>
+    </div>
+    <div class="hint">
+      ・Bluetooth接続後、この欄に自動で値が入ります（タップ不要）<br>
+      ・リーダー側の設定：接続モード「BT HID」／ターミネーター「Enter」／キーボード言語「US」
     </div>
   </div>
 
-  <div id="status" class="status pending">起動中…</div>
+  <div id="panel">
+    <div id="icon">■</div>
+    <div id="label">起動中</div>
+    <div id="detail"></div>
+  </div>
 
   <div class="row">
-    <button id="btnToggle" class="stop">スキャン停止</button>
-    <button id="btnList" class="list">スキャン一覧</button>
+    <button id="btnToggle">スキャン停止</button>
+    <button id="btnList" class="ghost">一覧を表示</button>
   </div>
 
-  <div class="row vol">
-    <span class="vol-label">音量</span>
-    <button class="vbtn" data-vol="high">大</button>
-    <button class="vbtn" data-vol="mid">中</button>
-    <button class="vbtn" data-vol="low">小</button>
-    <button id="btnTest" class="vbtn test">テスト音</button>
+  <div class="row">
+    <button id="btnSendNow">今すぐ送信</button>
+    <button id="btnCsv" class="ghost">CSV書き出し</button>
   </div>
 
-  <div id="vibNote" class="note" style="display:none;">
-    ※この端末は振動非対応のため、画面表示でお知らせします。
+  <div class="row">
+    <button id="btnFinish">作業終了チェック</button>
   </div>
 
-  <table>
-    <thead>
-      <tr><th>順</th><th>日時</th><th>QR内容</th><th>状態</th></tr>
-    </thead>
-    <tbody id="list">
-      <tr><td colspan="4" class="empty">まだスキャンがありません</td></tr>
-    </tbody>
-  </table>
+  <div class="row">
+    <button id="btnTorch" class="ghost" style="display:none;">ライト</button>
+    <button id="btnReload" class="ghost">シート照合</button>
+  </div>
+
+  <div id="zoomWrap" style="display:none;">
+    <div class="cap">ズーム（遠くのQRを読むとき）</div>
+    <input type="range" id="zoom" min="1" max="4" step="0.1" value="1" />
+  </div>
+
+  <div class="cap">音量</div>
+  <div class="vol" id="volRow">
+    <button data-v="0">消音</button><button data-v="1">小</button>
+    <button data-v="2">中</button><button data-v="3">大</button><button data-v="4">最大</button>
+  </div>
+  <div class="row">
+    <button id="btnTest" class="ghost">音を確認</button>
+    <button id="btnSpeak" class="ghost">音声読み上げ：オフ</button>
+  </div>
+
+  <div class="note" id="storeNote"></div>
+  <div id="vibNote" class="note" style="display:none;">※この端末は振動非対応のため、音と画面表示でお知らせします。</div>
+
+  <div id="listWrap">
+    <table>
+      <thead><tr><th>順</th><th>日時</th><th>QR内容</th><th>状態</th></tr></thead>
+      <tbody id="list"><tr><td colspan="4" class="empty">まだスキャンがありません</td></tr></tbody>
+    </table>
+  </div>
 </main>
+
+<!-- 未送信が1件でもある限り消えない警告 -->
+<div id="alertBar">
+  <div id="alertText">
+    ⚠ 未送信 <span id="alertCount">0</span> 件
+    <small>送信が完了するまで作業を終了しないでください</small>
+  </div>
+  <button id="alertSend">今すぐ送信</button>
+</div>
+<div id="doneBar">✓ すべて送信済みです</div>
 
 <script>
   // ===== 設定 =====================================================
-  // GASをWebアプリとしてデプロイしたURL（/exec で終わるもの）に書き換える
-  const GAS_URL = 'https://script.google.com/macros/s/AKfycbwVKU0yYNb4v2VhaTcDAq_lI8j2dYwxgpUZ1VkpGMFukv_titrQAuRrzWn_x71sieY4/exec';
-  // GAS側で TOKEN を設定した場合のみ同じ値を入れる（未使用なら空のまま）
-  const TOKEN = 'nike2026';
-  const DEDUP_MS = 3000;   // 同一コードの連打抑止時間(ミリ秒)
-  const RESET_MS = 3000;   // 結果表示→読み取り待ちへ戻すまでの時間(要求3)
+  const GAS_URL = 'https://script.google.com/macros/s/AKfycbxTGviS-98Mww0jwSy-tPN04KXmOsHi057wBD6RyT7ZKZgQho4RlhqcQsoVAEfrz0h5/exec';
+  const TOKEN = 'tana2026secret';
+
+  const DEDUP_MS    = 3000;   // 同一コードの連続読み取りを無視する時間
+  const HOLD_MS     = 1500;   // 成功/重複/失敗の表示を保持する時間
+  const FAST_KEY_MS = 60;     // これより速い連続入力はリーダー入力とみなす
+
+  const SEND_INTERVAL_MS = 10000;  // 送信ワーカーの起動間隔（10秒ごとに接続を確認）
+  const BATCH_SIZE       = 50;     // 1回の送信でまとめる最大件数
+  const BACKOFF_MAX_MS   = 120000; // 失敗時の最大待ち時間（2分）
+  const SEND_TIMEOUT_MS  = 15000;  // 1回の送信の打ち切り時間
   // ================================================================
 
-  const statusEl = document.getElementById('status');
-  const listEl   = document.getElementById('list');
-  const btnToggle = document.getElementById('btnToggle');
-  const btnList   = document.getElementById('btnList');
-  const overlay  = document.getElementById('scan-overlay');
+  const $ = id => document.getElementById(id);
+  const iconEl=$('icon'), labelEl=$('label'), detailEl=$('detail');
+  const countsEl=$('counts'), netBadge=$('netBadge');
+  const listEl=$('list'), listWrap=$('listWrap');
+  const camWrap=$('camWrap'), hidPane=$('hidPane'), hidInput=$('hidInput'), hidState=$('hidState');
+  const modeCam=$('modeCam'), modeHid=$('modeHid');
+  const btnToggle=$('btnToggle'), btnList=$('btnList'), btnReload=$('btnReload');
+  const btnTorch=$('btnTorch'), btnTest=$('btnTest'), btnSpeak=$('btnSpeak');
+  const zoomWrap=$('zoomWrap'), zoomEl=$('zoom');
 
   const vibrateSupported = 'vibrate' in navigator;
-  if (!vibrateSupported) document.getElementById('vibNote').style.display = 'block';
+  if (!vibrateSupported) $('vibNote').style.display = 'block';
 
-  let items = [];
-  let counter = 0;
+  let mode = 'cam';
   let lastContent = null, lastAt = 0;
   let scanner = null, running = false;
-  const registered = new Set();     // 登録済みQR内容（二重登録の防止）
-  let resetTimer = null;            // 待機へ戻すタイマー
+  let holdTimer = null;
+  const registered = new Set();   // 登録済みQR内容（重複判定用）
 
-  // ===== ステータス表示（枠色・周辺色・下部バー・自動復帰を一元管理）=====
-  function setStatus(msg, type) {
-    statusEl.textContent = msg;
-    statusEl.className = 'status ' + (type || 'pending');
+  // ================================================================
+  // ローカル保管庫：IndexedDB（使えない端末ではメモリに自動切替）
+  // 1件ごとに uuid を振るため、再送しても二重登録になりません
+  // ================================================================
+  const DB_NAME = 'qr_tanaoroshi', STORE = 'scans', DB_VER = 1;
+  let db = null, memRows = [], useMemory = false;
+
+  function openDB() {
+    return new Promise(resolve => {
+      let req;
+      try { req = indexedDB.open(DB_NAME, DB_VER); }
+      catch (e) { useMemory = true; return resolve(); }
+      req.onupgradeneeded = ev => {
+        const d = ev.target.result;
+        if (!d.objectStoreNames.contains(STORE)) {
+          const st = d.createObjectStore(STORE, { keyPath: 'uuid' });
+          st.createIndex('status', 'status');
+          st.createIndex('seq', 'seq');
+        }
+      };
+      req.onsuccess = () => { db = req.result; resolve(); };
+      req.onerror   = () => { useMemory = true; resolve(); };
+      setTimeout(() => { if (!db && !useMemory) { useMemory = true; resolve(); } }, 3000);
+    });
   }
-  // kind: 'wait' | 'proc' | 'ok' | 'dup' | 'err'
-  function setState(kind, msg) {
-    clearTimeout(resetTimer);
-    overlay.dataset.state = kind;
-    const barType = (kind === 'ok' || kind === 'proc') ? 'ok'
-                  : kind === 'dup' ? 'dup'
-                  : kind === 'err' ? 'err' : 'pending';
-    setStatus(msg, barType);
-    // 結果（成功・重複・失敗）は3秒表示して待機へ戻す（要求3）
-    if (kind === 'ok' || kind === 'dup' || kind === 'err') {
-      resetTimer = setTimeout(toWaiting, RESET_MS);
+  function tx(mode) { return db.transaction(STORE, mode).objectStore(STORE); }
+  function dbPut(row) {
+    if (useMemory) {
+      const i = memRows.findIndex(r => r.uuid === row.uuid);
+      if (i >= 0) memRows[i] = row; else memRows.push(row);
+      return Promise.resolve();
     }
+    return new Promise((res, rej) => { const r = tx('readwrite').put(row); r.onsuccess = res; r.onerror = rej; });
   }
-  function toWaiting() {
-    overlay.dataset.state = 'wait';
-    setStatus('読み取り待ち … QRコードをかざしてください', 'pending');
+  function dbPutMany(rows) { return Promise.all(rows.map(dbPut)); }
+  function dbAll() {
+    if (useMemory) return Promise.resolve(memRows.slice());
+    return new Promise(res => { const r = tx('readonly').getAll(); r.onsuccess = () => res(r.result || []); r.onerror = () => res([]); });
+  }
+
+  function uuid() {
+    if (crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+      const r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+
+  // ===== 状態表示 =================================================
+  const FACE = {
+    waiting:    { icon: '▣', label: '読み取り待ち' },
+    processing: { icon: '⟳', label: '処理中' },
+    ok:         { icon: '✓', label: '記録しました' },
+    dup:        { icon: '↺', label: '登録済み（重複）' },
+    err:        { icon: '✕', label: '記録できません' },
+    stopped:    { icon: '■', label: '停止中' }
+  };
+  function setState(type, detail, hold) {
+    clearTimeout(holdTimer);
+    document.body.dataset.state = type;
+    iconEl.textContent = FACE[type].icon;
+    labelEl.textContent = FACE[type].label;
+    detailEl.textContent = detail || '';
+    if (hold) holdTimer = setTimeout(idleState, HOLD_MS);
+  }
+  function idleState() {
+    clearTimeout(holdTimer);
+    if (mode === 'hid') { setState('waiting', 'リーダーで読み取ってください'); return; }
+    if (running) setState('waiting', 'QRコードをかざしてください');
+    else setState('stopped', '「スキャン開始」を押してください');
   }
 
   function formatNow() {
     const d = new Date(), p = n => String(n).padStart(2, '0');
-    return d.getFullYear() + '-' + p(d.getMonth()+1) + '-' + p(d.getDate())
-      + ' ' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds());
+    return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds());
   }
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+  function vibrate(p) { if (vibrateSupported) navigator.vibrate(p || 200); }
 
-  function render() {
-    if (items.length === 0) {
+  // ===== 画面更新 =================================================
+  let viewRows = [];
+  async function refreshView() {
+    viewRows = (await dbAll()).sort((a, b) => b.seq - a.seq);
+    const unsent = viewRows.filter(r => r.status === 'queued').length;
+    const total  = viewRows.length;
+    countsEl.textContent = '読取 ' + total + ' 件 ／ 未送信 ' + unsent + ' 件';
+    paintBadge(unsent);
+    updateAlert(unsent);
+    if (listWrap.style.display === 'block') renderList();
+  }
+  function renderList() {
+    if (viewRows.length === 0) {
       listEl.innerHTML = '<tr><td colspan="4" class="empty">まだスキャンがありません</td></tr>';
       return;
     }
-    listEl.innerHTML = items.map(it => {
-      const cls = it.status === '登録成功' ? 's-ok'
-                : it.status === '登録失敗' ? 's-err' : 's-pending';
-      return '<tr>'
-        + '<td>' + it.order + '</td>'
-        + '<td>' + it.time + '</td>'
-        + '<td class="content-cell">' + escapeHtml(it.content) + '</td>'
-        + '<td class="' + cls + '">' + it.status + '</td>'
-        + '</tr>';
-    }).join('');
+    const LABEL = { queued: '未送信', sent: '送信済', dup: '重複' };
+    listEl.innerHTML = viewRows.slice(0, 200).map(r =>
+      '<tr><td>' + r.seq + '</td><td>' + r.scannedAt + '</td>'
+      + '<td class="content-cell">' + escapeHtml(r.content) + '</td>'
+      + '<td class="s-' + r.status + '">' + (LABEL[r.status] || r.status) + '</td></tr>'
+    ).join('');
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c =>
-      ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let sending = false;
+  function paintBadge(unsent) {
+    if (sending)            { netBadge.className = 'send'; netBadge.textContent = '送信中…'; return; }
+    if (!navigator.onLine)  { netBadge.className = 'off';  netBadge.textContent = '🔴 圏外 ' + unsent + '件保留'; return; }
+    if (unsent > 0)         { netBadge.className = 'wait'; netBadge.textContent = '🟡 未送信 ' + unsent + '件'; return; }
+    netBadge.className = ''; netBadge.textContent = '🟢 送信済み';
   }
 
-  function vibrate(pattern) {
-    if (vibrateSupported) navigator.vibrate(pattern || 200);
-  }
-
-  // ===== 音（Web Audio API・音声ファイル不要／音量強化）=====
-  let audioCtx = null;
-  const VOL = { high: 0.95, mid: 0.55, low: 0.28 };   // 音量レベル
-  let volLevel = 'high';
-  try { volLevel = localStorage.getItem('qrVol') || 'high'; } catch (e) {}
-
+  // ===== 音 =======================================================
+  const VOL = [0, 0.2, 0.5, 1.0, 1.8];
+  let volIdx = 3, audioCtx = null, master = null, comp = null;
   function initAudio() {
     try {
-      if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if (!audioCtx) {
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        comp = audioCtx.createDynamicsCompressor();
+        comp.threshold.value = -18; comp.ratio.value = 12;
+        master = audioCtx.createGain(); master.gain.value = VOL[volIdx];
+        comp.connect(master); master.connect(audioCtx.destination);
+      }
       if (audioCtx.state === 'suspended') audioCtx.resume();
     } catch (e) {}
   }
-  // 騒音下でも通りやすいよう square 波＋高めの音量で鳴らす
-  function tone(freq, dur, vol, type) {
-    if (!audioCtx) return;
+  function setVolume(i) {
+    volIdx = i;
+    if (master) master.gain.value = VOL[i];
+    [...document.querySelectorAll('#volRow button')].forEach(b => b.classList.toggle('sel', Number(b.dataset.v) === i));
+  }
+  function tone(freq, dur, delay) {
+    if (!audioCtx || VOL[volIdx] === 0) return;
     try {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = type || 'square';
-      osc.frequency.value = freq;
-      osc.connect(gain); gain.connect(audioCtx.destination);
-      const t = audioCtx.currentTime;
-      const v = Math.min(0.98, vol || 0.3);
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(v, t + 0.008);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-      osc.start(t);
-      osc.stop(t + dur + 0.02);
+      const t = audioCtx.currentTime + (delay || 0);
+      const osc = audioCtx.createOscillator(), g = audioCtx.createGain();
+      osc.type = 'square'; osc.frequency.value = freq;
+      osc.connect(g); g.connect(comp);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(0.6, t + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+      osc.start(t); osc.stop(t + dur + 0.02);
     } catch (e) {}
   }
-  function beepOk()  { const v = VOL[volLevel]; tone(988, 0.11, v, 'square'); setTimeout(() => tone(1319, 0.15, v, 'square'), 90); } // 上昇2音
-  function beepDup() { const v = VOL[volLevel]; tone(660, 0.10, v, 'square'); setTimeout(() => tone(660, 0.10, v, 'square'), 150); } // 同音2回
-  function beepErr() { const v = VOL[volLevel]; tone(300, 0.20, v, 'square'); setTimeout(() => tone(300, 0.20, v, 'square'), 210); } // 低音2回
+  function beepOk()  { tone(1180, .10, 0); tone(1570, .12, .09); }
+  function beepDup() { tone(760, .14, 0);  tone(760, .14, .20); }
+  function beepErr() { tone(300, .22, 0);  tone(240, .30, .26); }
 
-  // 音量UI
-  const vbtns = Array.from(document.querySelectorAll('.vbtn[data-vol]'));
-  function updateVolUI() { vbtns.forEach(b => b.classList.toggle('active', b.dataset.vol === volLevel)); }
-  vbtns.forEach(b => b.addEventListener('click', () => {
-    volLevel = b.dataset.vol;
-    try { localStorage.setItem('qrVol', volLevel); } catch (e) {}
-    updateVolUI(); initAudio(); beepOk();      // 選択時に試聴
-  }));
-  document.getElementById('btnTest').addEventListener('click', () => { initAudio(); beepOk(); });
-  updateVolUI();
-
-  // 初回タップ／クリックで音を有効化
+  let speakOn = false;
+  function speak(text) {
+    if (!speakOn || !('speechSynthesis' in window)) return;
+    try {
+      const u = new SpeechSynthesisUtterance(text);
+      u.lang = 'ja-JP'; u.rate = 1.15;
+      speechSynthesis.cancel(); speechSynthesis.speak(u);
+    } catch (e) {}
+  }
   document.addEventListener('touchstart', initAudio, { once: true });
   document.addEventListener('click', initAudio, { once: true });
 
-  // ===== QR読み取り成功時のコールバック（常時連続で呼ばれる）=====
-  function onScan(decodedText) {
+  // ===== 読み取り（通信を待たず、必ずローカルに確定させる） =======
+  let seqMax = 0;
+  async function onScan(decodedText) {
+    const code = String(decodedText).trim();
+    if (!code) return;
     const now = Date.now();
-    // 同じコードがカメラに映り続ける間は一定時間に1回だけ処理（連打・連続音の防止）
-    if (decodedText === lastContent && now - lastAt < DEDUP_MS) return;
-    lastContent = decodedText;
-    lastAt = now;
+    if (code === lastContent && now - lastAt < DEDUP_MS) return;
+    lastContent = code; lastAt = now;
 
-    // 既に登録済みのQRは登録しない（黄・重複音）
-    if (registered.has(decodedText)) {
-      setState('dup', '↺ 登録済み（重複のため登録しません）: ' + decodedText);
-      beepDup(); vibrate([40, 60, 40]);
+    if (registered.has(code)) {
+      setState('dup', code, true);
+      beepDup(); vibrate([60,60,60]); speak('登録済みです');
       return;
     }
 
-    // 認識＝緑。登録処理へ（要求2：認識時に緑）
-    setState('proc', '● 認識 … 登録中: ' + decodedText);
-    beepOk(); vibrate(180);
-    register(decodedText);
+    const row = {
+      uuid: uuid(), seq: ++seqMax, content: code,
+      scannedAt: formatNow(), status: 'queued',
+      device: navigator.userAgent.slice(0, 120)
+    };
+    try {
+      await dbPut(row);
+      registered.add(code);
+      setState('ok', code, true);
+      beepOk(); vibrate(200); speak('記録しました');
+      await refreshView();
+      kickSender();               // 電波があればすぐ送る。なければ保留のまま
+    } catch (e) {
+      setState('err', '端末に保存できません：' + code, true);
+      beepErr(); vibrate([120,80,120]); speak('保存できません');
+    }
   }
 
-  // スプレッドシートへ即時登録
-  async function register(content) {
-    const item = { order: ++counter, time: formatNow(), content, status: '登録中' };
-    items.unshift(item);
-    render();
+  // ================================================================
+  // 送信ワーカー：10秒ごとに接続を確認し、未送信をまとめて送る
+  // ================================================================
+  let backoff = 0, nextAllowedAt = 0;
 
+  function kickSender() { if (Date.now() >= nextAllowedAt) sendQueued(); }
+
+  async function sendQueued(manual) {
+    if (sending) return;
+    const all = await dbAll();
+    const queued = all.filter(r => r.status === 'queued').sort((a, b) => a.seq - b.seq);
+    if (queued.length === 0) { backoff = 0; await refreshView(); return; }
+    if (!manual && Date.now() < nextAllowedAt) return;
+    if (!navigator.onLine) { await refreshView(); return; }
+
+    const batch = queued.slice(0, BATCH_SIZE);
+    sending = true; paintBadge(queued.length);
+
+    const ctl = new AbortController();
+    const timer = setTimeout(() => ctl.abort(), SEND_TIMEOUT_MS);
     try {
       const res = await fetch(GAS_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        body: JSON.stringify({ content, device: navigator.userAgent, token: TOKEN })
+        signal: ctl.signal,
+        body: JSON.stringify({
+          token: TOKEN,
+          rows: batch.map(r => ({ uuid: r.uuid, content: r.content, scannedAt: r.scannedAt, device: r.device }))
+        })
       });
       const data = await res.json();
-      if (data.ok) {
-        item.status = '登録成功';
-        registered.add(content);
-        if (data.timestamp) item.time = data.timestamp;
-        setState('ok', '✓ 登録成功: ' + content);
-      } else if (data.duplicate) {
-        items = items.filter(x => x !== item);   // 仮表示を取り消し
-        registered.add(content);
-        setState('dup', '↺ 登録済み（重複のため登録しません）: ' + content);
-        beepDup();
-      } else {
-        item.status = '登録失敗';
-        setState('err', '✗ 登録失敗: ' + content + '（' + (data.error || '') + '）');
-        beepErr(); vibrate([100, 80, 100]);
-      }
-    } catch (err) {
-      item.status = '登録失敗';
-      setState('err', '✗ 登録失敗（通信エラー）: ' + content);
-      beepErr(); vibrate([100, 80, 100]);
+      if (!data.ok) throw new Error(data.error || 'server error');
+
+      const accepted  = new Set(data.accepted  || []);
+      const duplicated = new Set(data.duplicated || []);
+      const updated = batch
+        .filter(r => accepted.has(r.uuid) || duplicated.has(r.uuid))
+        .map(r => Object.assign({}, r, { status: duplicated.has(r.uuid) ? 'dup' : 'sent', sentAt: formatNow() }));
+      await dbPutMany(updated);
+
+      backoff = 0; nextAllowedAt = 0;
+      sending = false;
+      await refreshView();
+
+      // まだ残っていれば続けて送る
+      const rest = (await dbAll()).filter(r => r.status === 'queued').length;
+      if (rest > 0) setTimeout(() => sendQueued(), 400);
+    } catch (e) {
+      // 失敗しても端末内のデータは消えない。待ち時間を倍にして再挑戦
+      backoff = backoff ? Math.min(backoff * 2, BACKOFF_MAX_MS) : SEND_INTERVAL_MS;
+      nextAllowedAt = Date.now() + backoff;
+      sending = false;
+      await refreshView();
+    } finally {
+      clearTimeout(timer);
     }
-    render();
   }
 
-  // スプレッドシートから最新一覧を取得して表示
+  setInterval(() => sendQueued(), SEND_INTERVAL_MS);
+  window.addEventListener('online',  () => { backoff = 0; nextAllowedAt = 0; sendQueued(true); refreshView(); });
+  window.addEventListener('offline', () => refreshView());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') {
+      sendQueued(true);
+      if (mode === 'cam' && !running) startScan();
+    }
+  });
+
+  // 未送信が残ったまま閉じようとしたら警告
+  window.addEventListener('beforeunload', e => {
+    const unsent = viewRows.filter(r => r.status === 'queued').length;
+    if (unsent > 0) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // ===== シート照合（既存データを重複判定に取り込む） =============
   async function loadAll() {
-    setStatus('一覧を取得中…', 'pending');
+    setState('processing', 'シートを照合中');
     try {
-      const res = await fetch(GAS_URL + '?action=list&limit=100&token=' + encodeURIComponent(TOKEN));
+      const res = await fetch(GAS_URL + '?action=list&limit=2000&token=' + encodeURIComponent(TOKEN));
       const data = await res.json();
       if (data.ok) {
-        const total = data.rows.length;
-        items = data.rows.map((r, i) => ({
-          order: total - i, time: r.timestamp, content: r.content, status: r.status
-        }));
-        counter = total;
-        data.rows.forEach(r => registered.add(String(r.content)));
-        render();
-        setStatus('スプレッドシートの最新一覧を表示しました', 'ok');
-        setTimeout(toWaiting, RESET_MS);
-      } else {
-        setStatus('一覧取得に失敗しました', 'err');
-      }
+        (data.rows || []).forEach(r => registered.add(String(r.content)));
+        setState('ok', 'シートの ' + (data.rows || []).length + ' 件を重複判定に反映しました', true);
+        beepOk();
+      } else { setState('err', 'シートを照合できません', true); beepErr(); }
     } catch (e) {
-      setStatus('一覧取得に失敗しました', 'err');
+      setState('err', 'シートを照合できません（通信エラー）', true); beepErr();
     }
+    await refreshView();
   }
 
-  // ===== スキャン開始/停止 =====
+  // ===== CSV書き出し（最後の保険） ================================
+  async function exportCsv() {
+    const rows = (await dbAll()).sort((a, b) => a.seq - b.seq);
+    if (!rows.length) { setState('err', '書き出すデータがありません', true); return; }
+    const head = 'uuid,seq,scannedAt,content,status\n';
+    const body = rows.map(r =>
+      [r.uuid, r.seq, r.scannedAt, '"' + String(r.content).replace(/"/g, '""') + '"', r.status].join(',')
+    ).join('\n');
+    const blob = new Blob(['﻿' + head + body], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'tanaoroshi_' + Date.now() + '.csv';
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+
+  // ===== リーダー(HID)入力 ========================================
+  let keyTimes = [], commitTimer = null, hidSeen = false;
+  function isFastInput() {
+    if (keyTimes.length < 3) return false;
+    let gaps = 0;
+    for (let i = 1; i < keyTimes.length; i++) gaps += keyTimes[i] - keyTimes[i-1];
+    return (gaps / (keyTimes.length - 1)) < FAST_KEY_MS;
+  }
+  function hidCommit(force) {
+    clearTimeout(commitTimer);
+    const v = hidInput.value.trim();
+    const fast = isFastInput();
+    keyTimes = [];
+    if (!v) return;
+    if (!force && !fast) return;
+    hidInput.value = '';
+    if (!hidSeen) { hidSeen = true; hidState.textContent = '✓ リーダー接続を確認しました'; }
+    onScan(v);
+  }
+  hidInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); hidCommit(true); return; }
+    if (e.key.length === 1) keyTimes.push(Date.now());
+  });
+  hidInput.addEventListener('input', () => {
+    clearTimeout(commitTimer);
+    commitTimer = setTimeout(() => hidCommit(false), 120);
+  });
+  $('btnManual').addEventListener('click', () => hidCommit(true));
+  $('btnClear').addEventListener('click', () => { hidInput.value = ''; keyTimes = []; hidInput.focus(); });
+  setInterval(() => {
+    if (mode === 'hid' && document.activeElement !== hidInput) {
+      const a = document.activeElement;
+      if (!a || a.tagName !== 'BUTTON') hidInput.focus();
+    }
+  }, 700);
+  document.addEventListener('keydown', e => {
+    if (mode !== 'cam' || e.target === hidInput) return;
+    if (e.key.length !== 1 || e.ctrlKey || e.metaKey || e.altKey) return;
+    setMode('hid'); hidInput.value = e.key; keyTimes = [Date.now()];
+  });
+
+  // ===== モード切替 ===============================================
+  function setMode(next) {
+    mode = next;
+    const cam = next === 'cam';
+    modeCam.classList.toggle('sel', cam);
+    modeHid.classList.toggle('sel', !cam);
+    camWrap.style.display = cam ? 'block' : 'none';
+    hidPane.style.display = cam ? 'none' : 'block';
+    btnToggle.style.display = cam ? '' : 'none';
+    zoomWrap.style.display = (cam && zoomWrap.dataset.ok === '1') ? 'block' : 'none';
+    btnTorch.style.display = (cam && btnTorch.dataset.ok === '1') ? '' : 'none';
+    if (cam) startScan(); else { stopScan(); hidInput.value = ''; keyTimes = []; hidInput.focus(); }
+    idleState();
+  }
+  modeCam.addEventListener('click', () => { initAudio(); setMode('cam'); });
+  modeHid.addEventListener('click', () => { initAudio(); setMode('hid'); });
+
+  // ===== カメラ制御 ===============================================
+  function videoTrack() {
+    const v = document.querySelector('#reader video');
+    return v && v.srcObject ? v.srcObject.getVideoTracks()[0] : null;
+  }
+  function setupCameraControls() {
+    const track = videoTrack();
+    if (!track || !track.getCapabilities) return;
+    let caps = {};
+    try { caps = track.getCapabilities() || {}; } catch (e) { return; }
+    if (caps.torch) { btnTorch.dataset.ok = '1'; if (mode === 'cam') btnTorch.style.display = ''; }
+    if (caps.zoom) {
+      zoomWrap.dataset.ok = '1';
+      if (mode === 'cam') zoomWrap.style.display = 'block';
+      zoomEl.min = caps.zoom.min; zoomEl.max = caps.zoom.max;
+      zoomEl.step = caps.zoom.step || 0.1;
+      zoomEl.value = track.getSettings().zoom || caps.zoom.min;
+    }
+    try { track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); } catch (e) {}
+  }
+  let torchOn = false;
+  btnTorch.addEventListener('click', async () => {
+    const track = videoTrack(); if (!track) return;
+    torchOn = !torchOn;
+    try {
+      await track.applyConstraints({ advanced: [{ torch: torchOn }] });
+      btnTorch.classList.toggle('on', torchOn);
+      btnTorch.textContent = torchOn ? 'ライト：点灯' : 'ライト';
+    } catch (e) { torchOn = false; }
+  });
+  zoomEl.addEventListener('input', async () => {
+    const track = videoTrack(); if (!track) return;
+    try { await track.applyConstraints({ advanced: [{ zoom: Number(zoomEl.value) }] }); } catch (e) {}
+  });
+
   async function startScan() {
-    if (running) return;
+    if (running || mode !== 'cam') return;
     initAudio();
-    scanner = scanner || new Html5Qrcode('reader');
+    scanner = scanner || new Html5Qrcode('reader', { verbose: false });
     try {
       await scanner.start(
         { facingMode: 'environment' },
-        { fps: 10 },                 // qrbox は指定せず全画面走査（枠は自前オーバーレイで描画）
-        onScan,
-        () => {}
+        {
+          fps: 15,
+          qrbox: (w, h) => { const m = Math.floor(Math.min(w, h) * 0.85); return { width: m, height: m }; },
+          aspectRatio: 1.0,
+          experimentalFeatures: { useBarCodeDetectorIfSupported: true }
+        },
+        onScan, () => {}
       );
       running = true;
       btnToggle.textContent = 'スキャン停止';
-      btnToggle.className = 'stop';
-      toWaiting();
+      idleState();
+      setTimeout(setupCameraControls, 600);
     } catch (err) {
-      setStatus('カメラを起動できません: ' + err, 'err');
+      setState('err', 'カメラを起動できません：' + err);
+    }
+  }
+  async function stopScan() {
+    if (!running || !scanner) return;
+    try { await scanner.stop(); } catch (e) {}
+    running = false;
+    btnToggle.textContent = 'スキャン開始';
+  }
+
+  // ===== イベント =================================================
+  btnToggle.addEventListener('click', () => running ? (stopScan(), idleState()) : startScan());
+  btnList.addEventListener('click', () => {
+    const show = listWrap.style.display !== 'block';
+    listWrap.style.display = show ? 'block' : 'none';
+    btnList.textContent = show ? '一覧を隠す' : '一覧を表示';
+    if (show) renderList();
+  });
+  $('btnSendNow').addEventListener('click', () => { backoff = 0; nextAllowedAt = 0; sendQueued(true); });
+  $('btnCsv').addEventListener('click', exportCsv);
+  btnReload.addEventListener('click', loadAll);
+  btnTest.addEventListener('click', () => { initAudio(); beepOk(); });
+  btnSpeak.addEventListener('click', () => {
+    speakOn = !speakOn;
+    btnSpeak.classList.toggle('on', speakOn);
+    btnSpeak.textContent = speakOn ? '音声読み上げ：オン' : '音声読み上げ：オフ';
+    if (speakOn) speak('音声読み上げを開始します');
+  });
+  document.querySelectorAll('#volRow button').forEach(b => {
+    b.addEventListener('click', () => { initAudio(); setVolume(Number(b.dataset.v)); beepOk(); });
+  });
+
+  // ================================================================
+  // 未送信ゼロになるまで警告を出し続ける
+  // ================================================================
+  const alertBar = $('alertBar'), alertCount = $('alertCount'), doneBar = $('doneBar');
+  const NAG_AFTER_MS    = 120000;  // 未送信が2分続いたら音でも催促を開始
+  const NAG_INTERVAL_MS = 60000;   // 以後1分ごとに催促
+  let unsentSince = 0, lastNagAt = 0, doneTimer = null;
+
+  function updateAlert(unsent) {
+    if (unsent > 0) {
+      if (!unsentSince) unsentSince = Date.now();
+      alertCount.textContent = unsent;
+      alertBar.classList.add('show');
+      doneBar.classList.remove('show');
+      clearTimeout(doneTimer);
+      document.body.classList.add('has-unsent');
+      return;
+    }
+    alertBar.classList.remove('show');
+    if (unsentSince) {               // 未送信が解消した瞬間だけ緑を出す
+      unsentSince = 0; lastNagAt = 0;
+      doneBar.classList.add('show');
+      clearTimeout(doneTimer);
+      doneTimer = setTimeout(() => {
+        doneBar.classList.remove('show');
+        document.body.classList.remove('has-unsent');
+      }, 4000);
+    } else {
+      document.body.classList.remove('has-unsent');
     }
   }
 
-  async function stopScan() {
-    if (!running || !scanner) return;
-    await scanner.stop();
-    running = false;
-    btnToggle.textContent = 'スキャン開始';
-    btnToggle.className = '';
-    clearTimeout(resetTimer);
-    overlay.dataset.state = 'wait';
-    setStatus('停止中', 'pending');
-  }
+  // 未送信が続く間は、画面を見ていなくても分かるよう音と振動でも知らせる
+  setInterval(() => {
+    const unsent = viewRows.filter(r => r.status === 'queued').length;
+    if (!unsent || !unsentSince) return;
+    const now = Date.now();
+    if (now - unsentSince < NAG_AFTER_MS) return;
+    if (now - lastNagAt < NAG_INTERVAL_MS) return;
+    lastNagAt = now;
+    beepErr(); vibrate([120, 80, 120]);
+    speak('未送信が' + unsent + '件あります');
+  }, 15000);
 
-  btnToggle.addEventListener('click', () => running ? stopScan() : startScan());
-  btnList.addEventListener('click', loadAll);
+  $('alertSend').addEventListener('click', () => { backoff = 0; nextAllowedAt = 0; sendQueued(true); });
 
-  // 起動と同時に常時スキャン開始
-  window.addEventListener('load', startScan);
+  // 作業終了チェック：未送信が残っていれば終了させない
+  $('btnFinish').addEventListener('click', async () => {
+    backoff = 0; nextAllowedAt = 0;
+    await sendQueued(true);
+    await refreshView();
+    const unsent = viewRows.filter(r => r.status === 'queued').length;
+    if (unsent === 0) {
+      setState('ok', '未送信 0 件。作業を終了できます', true);
+      beepOk(); vibrate(200); speak('すべて送信済みです。作業を終了できます');
+    } else {
+      setState('err', '未送信が ' + unsent + ' 件。電波の良い場所へ移動してください', true);
+      beepErr(); vibrate([120, 80, 120]); speak('未送信が' + unsent + '件あります');
+    }
+  });
+
+  // ===== 起動 =====================================================
+  (async function boot() {
+    await openDB();
+    $('storeNote').textContent = useMemory
+      ? '⚠ この端末では端末内保存が使えないため、画面を閉じると未送信データが消えます。こまめに「今すぐ送信」してください。'
+      : '※読み取りは端末内に保存されます。アプリを閉じても未送信データは残り、次回起動時に自動送信します。';
+    const all = await dbAll();
+    all.forEach(r => { registered.add(String(r.content)); if (r.seq > seqMax) seqMax = r.seq; });
+    setVolume(volIdx);
+    setMode('cam');
+    await refreshView();
+    sendQueued(true);   // 前回の未送信分を起動時にまとめて送る
+  })();
 </script>
 </body>
 </html>
