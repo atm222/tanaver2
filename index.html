@@ -253,7 +253,7 @@
 <script>
 // ============ 設定 ============================================
 // ★GASを作り直したら、この1行だけを新しいURLに差し替えてください
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbwlgBo1V0NdWoTQV3w0Wl5XKb58Y0NQwSBvMsQkd-tNO_q3Dq_GD0j04MhVPcOJwXM/exec';
+var GAS_URL = 'https://script.google.com/macros/s/AKfycby8HUBnqlNBDK6lNIzVXds4q2jLFUB0cLSs5NcaJxDURmY9bnDRmYM28mkXcelYY3lT/exec';
 var TOKEN   = 'tana2026secret';
 
 var SEND_INTERVAL_MS = 300000;   // 5分ごとに送信
@@ -421,12 +421,19 @@ function renderDiag(){
     + '（' + storageMsg + '）<br>'
     + '<b>件数：</b>全 ' + rows.length + ' ／ 送信済 ' + sentCount() + ' ／ <b>未送信 ' + un + '</b><br>'
     + '<b>送信先：</b>' + srv + '<br>'
+    + '<b>送信先URL：</b>' + urlTail() + '<br>'
     + '<b>書き込み先：</b>' + (destBook
         ? esc(destBook) + ' の <b>［' + esc(destSheet) + '］タブ</b>'
           + (destRows >= 0 ? '（' + destRows + '行）' : '')
         : '<span class="dbad">未確認</span>') + '<br>'
     + '<b>最後の送信：</b>' + (lastSendAt ? nowFrom(lastSendAt) + '（' + lastSendMsg + '）' : 'まだありません') + '<br>'
     + '<b>次の送信：</b>' + nextIn;
+}
+// どのデプロイを見ているかを画面で確認できるようにする
+function urlTail(){
+  var m = String(GAS_URL).match(/\/s\/([^\/]+)/);
+  var id = m ? m[1] : '';
+  return id ? ('…' + id.slice(-16)) : '<span class="dbad">未設定</span>';
 }
 function nowFrom(ts){
   var d = new Date(ts), p = function(n){ return (n<10?'0':'')+n; };
@@ -557,7 +564,9 @@ function sendQueued(manual){
   }).then(function(data){
     if (!data || data.ok !== true) throw new Error((data && data.error) || '応答が不正です');
     serverOk = true; serverVersion = Number(data.version || 0);
-    if (serverVersion < NEED_VERSION) throw new Error('GASが旧バージョンです（要更新）');
+    if (serverVersion < NEED_VERSION) {
+      throw new Error('GASがv' + serverVersion + '（古いデプロイを見ています）');
+    }
 
     var acc = data.accepted || [], dup = data.duplicated || [];
     var accMap = {}, dupMap = {}, i;
@@ -577,8 +586,8 @@ function sendQueued(manual){
     if (data.book) { destBook = data.book; destSheet = data.sheet || ''; }
     if (typeof data.rowsAfter === 'number') destRows = Math.max(0, data.rowsAfter - 1);
     lastSendAt = Date.now();
-    lastSendMsg = '成功 ' + changed + '件'
-      + (typeof data.written === 'number' ? '（シートに ' + data.written + ' 行追記）' : '');
+    lastSendMsg = '新規 ' + (typeof data.written === 'number' ? data.written : acc.length)
+                + ' ／ 重複 ' + dup.length + '（計 ' + changed + '件）';
     backoff = 0; nextAllowedAt = 0;
     sending = false; paint();
 
@@ -911,15 +920,20 @@ function rebuildIndex(){
 setInterval(purgeOld, 3600000);
 
 $('btnReset').addEventListener('click', function(){
-  var un = unsentCount();
+  var un = unsentCount(), total = rows.length;
+  if (total === 0) { setState('ok','消すデータはありません', true); return; }
+
+  if (!confirm('端末内の ' + total + ' 件をすべて消します。\nよろしいですか？')) return;
+
+  // 未送信が残っている場合は、取り返しがつかないので2回確認する
   if (un > 0) {
-    if (!confirm('未送信が ' + un + ' 件あります。\n送信済みの ' + (rows.length-un) + ' 件だけを消しますか？\n（未送信は残ります）')) return;
-  } else {
-    if (!confirm('端末内の ' + rows.length + ' 件を消します。よろしいですか？')) return;
+    if (!confirm('未送信が ' + un + ' 件あります。\nこの ' + un + ' 件はスプレッドシートに入りません。\n\n本当に消しますか？\n（残したい場合は「キャンセル」→「CSV書き出し」）')) return;
   }
-  rows = rows.filter(function(r){ return r.status === 'queued'; });
-  saveRows(); rebuildIndex(); paint();
-  setState('ok','端末内のデータを初期化しました', true); beepOk();
+
+  rows = [];
+  registered = {}; seqMax = 0; lastContent = null;
+  saveRows(); paint(); renderList();
+  setState('ok','端末内のデータをすべて消しました', true); beepOk();
 });
 
 // ============ ボタン ==========================================
