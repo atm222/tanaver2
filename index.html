@@ -128,11 +128,6 @@
   #imeModal .sub { font-size:13px; color:#555; line-height:1.7; }
   #imeModal button { margin-top:6px; }
 
-  /* 送信先URLの設定 */
-  #urlRow { display:flex; gap:6px; margin:6px 0; }
-  #gasUrl { flex:1; padding:11px; font-size:13px; border:none; border-radius:10px; color:#16202c; }
-  #urlRow button { flex:0 0 auto; padding:11px 14px; font-size:14px; }
-
   #doneBar { display:none; padding:14px 12px calc(14px + env(safe-area-inset-bottom));
              background:#0f8f45; color:#fff; font-size:17px; font-weight:900; text-align:center; }
   #doneBar.show { display:block; }
@@ -206,11 +201,6 @@
 
   <div class="cap">状態の確認</div>
   <div id="diag">読み込み中…</div>
-  <div class="cap">送信先URL（GASを作り直したら貼り替える）</div>
-  <div id="urlRow">
-    <input id="gasUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/.../exec" />
-    <button id="btnUrl">保存</button>
-  </div>
   <div class="row">
     <button id="btnPing" class="ghost">接続テスト</button>
     <button id="btnReset" class="danger">データ初期化</button>
@@ -262,11 +252,8 @@
 
 <script>
 // ============ 設定 ============================================
-var GAS_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwlgBo1V0NdWoTQV3w0Wl5XKb58Y0NQwSBvMsQkd-tNO_q3Dq_GD0j04MhVPcOJwXM/exec';
-var GAS_KEY = 'qr_gas_url_v6';
-var GAS_URL = (function(){
-  try { return localStorage.getItem(GAS_KEY) || GAS_URL_DEFAULT; } catch(e){ return GAS_URL_DEFAULT; }
-})();
+// ★GASを作り直したら、この1行だけを新しいURLに差し替えてください
+var GAS_URL = 'https://script.google.com/macros/s/AKfycbwlgBo1V0NdWoTQV3w0Wl5XKb58Y0NQwSBvMsQkd-tNO_q3Dq_GD0j04MhVPcOJwXM/exec';
 var TOKEN   = 'tana2026secret';
 
 var SEND_INTERVAL_MS = 300000;   // 5分ごとに送信
@@ -274,7 +261,7 @@ var BATCH_SIZE       = 50;       // 1回にまとめる件数
 var SEND_TIMEOUT_MS  = 20000;    // 送信の打ち切り
 var BACKOFF_MAX_MS   = 600000;   // 失敗時の最大待ち（10分）
 var KEEP_DAYS        = 10;       // これより古い「送信済み」は自動削除
-var NEED_VERSION     = 3;        // GAS側に必要なバージョン
+var NEED_VERSION     = 5;        // GAS側に必要なバージョン
 var DEDUP_MS         = 3000;
 var HOLD_MS          = 1500;
 // ==============================================================
@@ -393,6 +380,7 @@ function sentCount(){
 
 var sending = false, lastSendAt = 0, lastSendMsg = '未送信', nextAllowedAt = 0, backoff = 0;
 var serverOk = null, serverVersion = 0;
+var destBook = '', destSheet = '', destRows = -1;   // 実際の書き込み先
 
 function paint(){
   var un = unsentCount();
@@ -433,6 +421,10 @@ function renderDiag(){
     + '（' + storageMsg + '）<br>'
     + '<b>件数：</b>全 ' + rows.length + ' ／ 送信済 ' + sentCount() + ' ／ <b>未送信 ' + un + '</b><br>'
     + '<b>送信先：</b>' + srv + '<br>'
+    + '<b>書き込み先：</b>' + (destBook
+        ? esc(destBook) + ' の <b>［' + esc(destSheet) + '］タブ</b>'
+          + (destRows >= 0 ? '（' + destRows + '行）' : '')
+        : '<span class="dbad">未確認</span>') + '<br>'
     + '<b>最後の送信：</b>' + (lastSendAt ? nowFrom(lastSendAt) + '（' + lastSendMsg + '）' : 'まだありません') + '<br>'
     + '<b>次の送信：</b>' + nextIn;
 }
@@ -582,7 +574,11 @@ function sendQueued(manual){
       else if (accMap[r.uuid]) { r.status='sent'; r.sentAt=nowStr(); changed++; }
     }
     saveRows();
-    lastSendAt = Date.now(); lastSendMsg = '成功 ' + changed + '件';
+    if (data.book) { destBook = data.book; destSheet = data.sheet || ''; }
+    if (typeof data.rowsAfter === 'number') destRows = Math.max(0, data.rowsAfter - 1);
+    lastSendAt = Date.now();
+    lastSendMsg = '成功 ' + changed + '件'
+      + (typeof data.written === 'number' ? '（シートに ' + data.written + ' 行追記）' : '');
     backoff = 0; nextAllowedAt = 0;
     sending = false; paint();
 
@@ -608,6 +604,7 @@ function ping(){
     .then(function(d){
       serverOk = (d && d.ok === true);
       serverVersion = Number((d && d.version) || 0);
+      if (d && d.book) { destBook = d.book; destSheet = d.sheet || ''; destRows = Number(d.rows); }
       paint();
       return d;
     }).catch(function(e){
@@ -943,27 +940,6 @@ $('alertSend').addEventListener('click', function(){
 });
 $('btnCsv').addEventListener('click', exportCsv);
 $('btnReload').addEventListener('click', loadAll);
-$('gasUrl').value = GAS_URL;
-$('btnUrl').addEventListener('click', function(){
-  var v = String($('gasUrl').value || '').trim();
-  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(v)) {
-    setState('err','URLの形式が違います（/exec で終わる必要があります）', true); beepErr(); return;
-  }
-  GAS_URL = v;
-  try { localStorage.setItem(GAS_KEY, v); } catch(e){}
-  setState('processing','新しい送信先を確認中');
-  ping().then(function(d){
-    if (d && d.ok && Number(d.version||0) >= NEED_VERSION) {
-      setState('ok','送信先を保存しました（v'+d.version+'）', true); beepOk();
-      sendQueued(true);
-    } else {
-      setState('err','つながりましたが、GASが古いようです', true); beepErr();
-    }
-  }).catch(function(){
-    setState('err','この送信先につながりません', true); beepErr();
-  });
-});
-
 $('btnPing').addEventListener('click', function(){
   setState('processing','接続を確認中');
   ping().then(function(d){
