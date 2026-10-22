@@ -53,8 +53,6 @@
   #hidEcho { background:#fff; color:#16202c; border-radius:10px; padding:13px 10px;
              font-size:20px; font-weight:800; min-height:50px; word-break:break-all; }
   #hidInput { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
-  #imeWarn { display:none; margin-top:8px; padding:10px; border-radius:10px;
-             background:#cc2b1d; color:#fff; font-size:14px; font-weight:800; }
   .hint { font-size:12px; opacity:.9; margin-top:8px; line-height:1.6; text-align:left; }
 
   #panel { margin:10px 0; padding:14px 12px; border-radius:14px; background:rgba(0,0,0,.22); text-align:center; }
@@ -111,6 +109,30 @@
   #zoomBar .zl { font-size:13px; font-weight:800; white-space:nowrap; }
   #zoom { flex:1; height:40px; }
   #zoomBar button { flex:0 0 auto; padding:10px 12px; font-size:14px; }
+  /* かな対策の状態表示 */
+  #imeStatus { margin-top:10px; padding:11px 10px; border-radius:10px;
+               font-size:16px; font-weight:900; text-align:center; }
+  #imeStatus.ok { background:#0f8f45; color:#fff; }
+  #imeStatus.ng { background:#cc2b1d; color:#fff; animation:pulse2 1.1s ease-in-out infinite alternate; }
+  @keyframes pulse2 { from{opacity:.65;} to{opacity:1;} }
+  @media (prefers-reduced-motion:reduce){ #imeStatus.ng{animation:none;} }
+
+  /* 設定ガイド */
+  #imeModal { display:none; position:fixed; inset:0; z-index:10000;
+              background:rgba(0,0,0,.65); padding:18px; overflow:auto; }
+  #imeModal.show { display:block; }
+  #imeModal .box { max-width:520px; margin:24px auto; background:#fff; color:#16202c;
+                   border-radius:16px; padding:18px; }
+  #imeModal h3 { margin:0 0 10px; font-size:19px; }
+  #imeModal ol { padding-left:20px; margin:8px 0; line-height:1.9; font-size:15px; }
+  #imeModal .sub { font-size:13px; color:#555; line-height:1.7; }
+  #imeModal button { margin-top:6px; }
+
+  /* 送信先URLの設定 */
+  #urlRow { display:flex; gap:6px; margin:6px 0; }
+  #gasUrl { flex:1; padding:11px; font-size:13px; border:none; border-radius:10px; color:#16202c; }
+  #urlRow button { flex:0 0 auto; padding:11px 14px; font-size:14px; }
+
   #doneBar { display:none; padding:14px 12px calc(14px + env(safe-area-inset-bottom));
              background:#0f8f45; color:#fff; font-size:17px; font-weight:900; text-align:center; }
   #doneBar.show { display:block; }
@@ -138,13 +160,13 @@
     <div id="hidEcho">ここに読み取り結果が出ます</div>
     <input id="hidInput" type="email" autocomplete="off" autocapitalize="off"
            autocorrect="off" spellcheck="false" inputmode="email" />
-    <div id="imeWarn">⚠ 日本語入力が働いています。下の「かな対策」を押してください</div>
+    <div id="imeStatus" class="ok">✓ かな対策：効いています</div>
     <div class="row" style="margin-top:8px;">
-      <button id="btnIme">かな対策：強</button>
+      <button id="btnImeFix">日本語入力を止める</button>
       <button id="btnFocus" class="ghost">受付を再開</button>
     </div>
     <div class="hint">
-      ・「かな対策：強」にしておくと、iPhoneの設定を変えなくても日本語変換が止まります<br>
+      ・赤く「未設定」と出たら、上のボタンを押して手順どおり設定してください<br>
       ・値が入らなくなったら「受付を再開」を押してください<br>
       ・リーダー側の設定：接続モード「BT HID」／ターミネーター「Enter」
     </div>
@@ -184,6 +206,11 @@
 
   <div class="cap">状態の確認</div>
   <div id="diag">読み込み中…</div>
+  <div class="cap">送信先URL（GASを作り直したら貼り替える）</div>
+  <div id="urlRow">
+    <input id="gasUrl" type="url" autocomplete="off" spellcheck="false" placeholder="https://script.google.com/macros/s/.../exec" />
+    <button id="btnUrl">保存</button>
+  </div>
   <div class="row">
     <button id="btnPing" class="ghost">接続テスト</button>
     <button id="btnReset" class="danger">データ初期化</button>
@@ -198,6 +225,25 @@
   </div>
 </main>
 
+<div id="imeModal">
+  <div class="box">
+    <h3>日本語入力を止める手順（iPhone）</h3>
+    <ol>
+      <li>ホーム画面で <b>設定</b> を開く</li>
+      <li><b>一般</b> → <b>キーボード</b></li>
+      <li><b>ハードウェアキーボード</b> をタップ</li>
+      <li>一番上の入力ソースを <b>English (US)</b> にする</li>
+      <li>このアプリに戻り、下の「設定しました」を押す</li>
+    </ol>
+    <p class="sub">
+      リーダー本体に <b>Caps Lock</b> キーがあれば、それを押しても日本語⇔英語を切り替えられます。<br>
+      Androidの場合は、画面下のキーボードアイコンから英語キーボードを選んでください。
+    </p>
+    <button id="imeDone">設定しました</button>
+    <button id="imeClose" class="ghost">あとで</button>
+  </div>
+</div>
+
 <div id="dock">
   <div id="doneBar">✓ すべて送信済みです</div>
   <div id="alertBar">
@@ -208,13 +254,19 @@
   <div id="zoomBar">
     <span class="zl">ズーム</span>
     <input type="range" id="zoom" min="1" max="4" step="0.1" value="1" />
-    <button id="zoomReset">等倍</button>
+    <button class="zp" data-z="1">等倍</button>
+    <button class="zp" data-z="1.1">×1.1</button>
+    <button class="zp" data-z="1.2">×1.2</button>
   </div>
 </div>
 
 <script>
 // ============ 設定 ============================================
-var GAS_URL = 'https://script.google.com/macros/s/AKfycbxTGviS-98Mww0jwSy-tPN04KXmOsHi057wBD6RyT7ZKZgQho4RlhqcQsoVAEfrz0h5/exec';
+var GAS_URL_DEFAULT = 'https://script.google.com/macros/s/AKfycbwlgBo1V0NdWoTQV3w0Wl5XKb58Y0NQwSBvMsQkd-tNO_q3Dq_GD0j04MhVPcOJwXM/exec';
+var GAS_KEY = 'qr_gas_url_v6';
+var GAS_URL = (function(){
+  try { return localStorage.getItem(GAS_KEY) || GAS_URL_DEFAULT; } catch(e){ return GAS_URL_DEFAULT; }
+})();
 var TOKEN   = 'tana2026secret';
 
 var SEND_INTERVAL_MS = 300000;   // 5分ごとに送信
@@ -232,7 +284,7 @@ var iconEl=$('icon'), labelEl=$('label'), detailEl=$('detail');
 var countsEl=$('counts'), netBadge=$('netBadge'), diagEl=$('diag');
 var listEl=$('list'), listWrap=$('listWrap');
 var camWrap=$('camWrap'), hidPane=$('hidPane'), hidInput=$('hidInput');
-var hidEcho=$('hidEcho'), hidState=$('hidState'), imeWarn=$('imeWarn');
+var hidEcho=$('hidEcho'), hidState=$('hidState'), imeStatus=$('imeStatus');
 var modeCam=$('modeCam'), modeHid=$('modeHid');
 var btnToggle=$('btnToggle'), btnTorch=$('btnTorch');
 var zoomBar=$('zoomBar'), zoomEl=$('zoom'), alertBar=$('alertBar'), doneBar=$('doneBar');
@@ -548,10 +600,10 @@ function sendQueued(manual){
 }
 
 function ping(){
-  var url = GAS_URL + '?action=ping&token=' + encodeURIComponent(TOKEN);
+  var url = GAS_URL + '?action=ping&token=' + encodeURIComponent(TOKEN) + '&_=' + Date.now();
   var ctl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
   var timer = setTimeout(function(){ if (ctl) ctl.abort(); }, SEND_TIMEOUT_MS);
-  var opt = ctl ? {signal:ctl.signal} : {};
+  var opt = ctl ? {signal:ctl.signal, cache:'no-store'} : {cache:'no-store'};
   return fetch(url, opt).then(function(r){ clearTimeout(timer); return r.json(); })
     .then(function(d){
       serverOk = (d && d.ok === true);
@@ -618,17 +670,39 @@ window.addEventListener('resize', fitDock);
 
 // ============ リーダー（HID）入力 =============================
 // 入力欄は画面外に置き、受け取った文字だけを大きく表示します。
-var keyBuf = '', keyTimes = [], commitTimer = null, hidSeen = false, imeStrong = true;
+var keyTimes = [], commitTimer = null, hidSeen = false;
+var imeNg = 0, cleanStreak = 0, composing = false;
 
 function hidShow(v){ hidEcho.textContent = v || 'ここに読み取り結果が出ます'; }
+
+// 日本語入力が効いているかを自動で判定して表示する
+function markIme(bad){
+  if (bad) { imeNg++; cleanStreak = 0; }
+  else { cleanStreak++; if (cleanStreak >= 2) imeNg = 0; }
+  if (imeNg > 0) {
+    imeStatus.className = 'ng';
+    imeStatus.textContent = '⚠ 日本語入力が働いています → 下のボタンを押す';
+    $('btnImeFix').className = '';
+  } else {
+    imeStatus.className = 'ok';
+    imeStatus.textContent = '✓ かな対策：効いています';
+    $('btnImeFix').className = 'ghost';
+  }
+}
+// 生の文字列に全角やかなが混じっていたら「日本語入力が働いている」と判断
+function looksJapanese(raw){
+  return /[ぁ-んァ-ヶ、。　０-９Ａ-Ｚａ-ｚ！-～]/.test(String(raw));
+}
+
 function hidCommit(force){
   clearTimeout(commitTimer);
-  var v = normalize(hidInput.value || keyBuf);
-  hidInput.value = ''; keyBuf = ''; keyTimes = [];
-  hidShow('');
+  if (composing && !force) return;
+  var raw = hidInput.value;
+  var v = normalize(raw);
+  hidInput.value = ''; keyTimes = []; hidShow('');
   if (!v) return;
-  var fast = isFast();
-  if (!force && !fast) return;
+  if (!force && !isFast()) return;
+  markIme(looksJapanese(raw));
   if (!hidSeen) { hidSeen = true; hidState.textContent = '✓ リーダー接続を確認しました'; }
   onScan(v);
 }
@@ -636,39 +710,50 @@ function isFast(){
   if (keyTimes.length < 3) return false;
   var gaps = 0;
   for (var i=1;i<keyTimes.length;i++) gaps += keyTimes[i] - keyTimes[i-1];
-  return (gaps/(keyTimes.length-1)) < 70;
+  return (gaps/(keyTimes.length-1)) < 90;
 }
 hidInput.addEventListener('keydown', function(e){
-  if (e.key === 'Enter') { e.preventDefault(); hidCommit(true); return; }
+  if (e.key === 'Enter' && !composing) { e.preventDefault(); hidCommit(true); return; }
   if (e.key && e.key.length === 1) keyTimes.push(Date.now());
 });
 hidInput.addEventListener('input', function(){
   hidShow(normalize(hidInput.value));
   clearTimeout(commitTimer);
-  commitTimer = setTimeout(function(){ hidCommit(false); }, 150);
+  // 日本語変換が入ると文字が遅れて届くため、少し長めに待つ
+  commitTimer = setTimeout(function(){ hidCommit(false); }, composing ? 400 : 180);
 });
-// 日本語変換が動いたら知らせる
-hidInput.addEventListener('compositionstart', function(){ imeWarn.style.display = 'block'; });
+hidInput.addEventListener('compositionstart', function(){
+  composing = true; markIme(true);
+});
 hidInput.addEventListener('compositionend', function(){
-  setTimeout(function(){ imeWarn.style.display = 'none'; }, 2500);
+  composing = false;
+  clearTimeout(commitTimer);
+  commitTimer = setTimeout(function(){ hidCommit(true); }, 120);
 });
 
-function setIme(strong){
-  imeStrong = strong;
-  // email 入力欄は iOS で英数字入力になり、日本語変換が働きません
-  hidInput.type = strong ? 'email' : 'text';
-  hidInput.inputMode = strong ? 'email' : 'text';
-  $('btnIme').textContent = 'かな対策：' + (strong ? '強' : '弱');
-  $('btnIme').className = strong ? 'on' : '';
-  imeWarn.style.display = 'none';
-  focusHid();
+// 入力欄の種類を切り替える（email欄はiOSで英数字入力になる）
+function applyImeGuard(){
+  try {
+    hidInput.type = 'email';
+    hidInput.inputMode = 'email';
+    hidInput.setAttribute('lang', 'en');
+  } catch(e){}
 }
 function focusHid(){
   if (mode !== 'hid') return;
   try { hidInput.focus(); } catch(e){}
 }
-$('btnIme').addEventListener('click', function(){ setIme(!imeStrong); });
-$('btnFocus').addEventListener('click', function(){ hidInput.value=''; keyBuf=''; focusHid(); });
+$('btnImeFix').addEventListener('click', function(){ $('imeModal').className = 'show'; });
+$('imeClose').addEventListener('click', function(){ $('imeModal').className = ''; focusHid(); });
+$('imeDone').addEventListener('click', function(){
+  $('imeModal').className = '';
+  imeNg = 0; cleanStreak = 0;
+  applyImeGuard(); markIme(false); focusHid();
+  setState('ok','設定を反映しました。QRを1枚読んで確かめてください', true); beepOk();
+});
+$('btnFocus').addEventListener('click', function(){
+  hidInput.value=''; keyTimes=[]; hidShow(''); focusHid();
+});
 hidPane.addEventListener('click', function(e){
   if (e.target.tagName !== 'BUTTON') focusHid();
 });
@@ -727,7 +812,20 @@ function applyZoom(v){
   try { track.applyConstraints({ advanced:[{ zoom:Number(v) }] }); } catch(e){}
 }
 zoomEl.addEventListener('input', function(){ applyZoom(zoomEl.value); });
-$('zoomReset').addEventListener('click', function(){ zoomEl.value = zoomEl.min; applyZoom(zoomEl.min); });
+(function(){
+  var zs = document.querySelectorAll('.zp');
+  for (var i=0;i<zs.length;i++) (function(b){
+    b.addEventListener('click', function(){
+      // 端末が対応していない倍率は、使える範囲に丸める
+      var want = Number(b.dataset.z);
+      var lo = Number(zoomEl.min) || 1, hi = Number(zoomEl.max) || 1;
+      var v = Math.min(Math.max(want, lo), hi);
+      zoomEl.value = v; applyZoom(v);
+      for (var k=0;k<zs.length;k++) zs[k].className = 'zp';
+      b.className = 'zp on';
+    });
+  })(zs[i]);
+})();
 
 function startScan(){
   if (running || mode !== 'cam') return;
@@ -758,8 +856,8 @@ function stopScan(){
 // ============ シート照合 ======================================
 function loadAll(){
   setState('processing','シートを照合中');
-  var url = GAS_URL + '?action=list&limit=3000&token=' + encodeURIComponent(TOKEN);
-  fetch(url).then(function(r){ return r.json(); }).then(function(d){
+  var url = GAS_URL + '?action=list&limit=3000&token=' + encodeURIComponent(TOKEN) + '&_=' + Date.now();
+  fetch(url, {cache:'no-store'}).then(function(r){ return r.json(); }).then(function(d){
     if (d && d.ok) {
       var list = d.rows || [];
       for (var i=0;i<list.length;i++) registered[normalize(list[i].content)] = 1;
@@ -845,6 +943,27 @@ $('alertSend').addEventListener('click', function(){
 });
 $('btnCsv').addEventListener('click', exportCsv);
 $('btnReload').addEventListener('click', loadAll);
+$('gasUrl').value = GAS_URL;
+$('btnUrl').addEventListener('click', function(){
+  var v = String($('gasUrl').value || '').trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(v)) {
+    setState('err','URLの形式が違います（/exec で終わる必要があります）', true); beepErr(); return;
+  }
+  GAS_URL = v;
+  try { localStorage.setItem(GAS_KEY, v); } catch(e){}
+  setState('processing','新しい送信先を確認中');
+  ping().then(function(d){
+    if (d && d.ok && Number(d.version||0) >= NEED_VERSION) {
+      setState('ok','送信先を保存しました（v'+d.version+'）', true); beepOk();
+      sendQueued(true);
+    } else {
+      setState('err','つながりましたが、GASが古いようです', true); beepErr();
+    }
+  }).catch(function(){
+    setState('err','この送信先につながりません', true); beepErr();
+  });
+});
+
 $('btnPing').addEventListener('click', function(){
   setState('processing','接続を確認中');
   ping().then(function(d){
@@ -892,7 +1011,7 @@ $('btnSpeak').addEventListener('click', function(){
   rebuildIndex();
   purgeOld();
   setVolume(3);
-  setIme(true);
+  applyImeGuard(); markIme(false);
   setMode('cam');
   paint();
   fitDock();
