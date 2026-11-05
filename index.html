@@ -52,7 +52,6 @@
   #hidState { font-size:17px; font-weight:800; margin-bottom:8px; }
   #hidEcho { background:#fff; color:#16202c; border-radius:10px; padding:13px 10px;
              font-size:20px; font-weight:800; min-height:50px; word-break:break-all; }
-  #hidInput { position:absolute; left:-9999px; width:1px; height:1px; opacity:0; }
   .hint { font-size:12px; opacity:.9; margin-top:8px; line-height:1.6; text-align:left; }
 
   #panel { margin:10px 0; padding:14px 12px; border-radius:14px; background:rgba(0,0,0,.22); text-align:center; }
@@ -103,6 +102,9 @@
   #alertText { flex:1; font-size:16px; font-weight:900; line-height:1.3; }
   #alertText small { display:block; font-size:11px; font-weight:700; opacity:.95; margin-top:2px; }
   #alertBar button { flex:0 0 auto; padding:12px 13px; font-size:14px; background:#fff; color:#8e1b11; }
+  /* 送信中は警告バーを橙にして、押したことが分かるようにする */
+  #alertBar.sending { background:#d97a00; animation:none; }
+  #alertBar.sending button { background:rgba(255,255,255,.35); color:#fff; border:2px solid #fff; }
   #zoomBar { display:none; padding:9px 12px calc(9px + env(safe-area-inset-bottom));
              background:rgba(10,20,32,.93); color:#fff; align-items:center; gap:10px; }
   #zoomBar.show { display:flex; }
@@ -126,7 +128,8 @@
   #imeModal h3 { margin:0 0 10px; font-size:19px; }
   #imeModal ol { padding-left:20px; margin:8px 0; line-height:1.9; font-size:15px; }
   #imeModal .sub { font-size:13px; color:#555; line-height:1.7; }
-  #imeModal button { margin-top:6px; }
+  #imeModal .row { display:flex; gap:8px; }
+  #imeModal h4 { color:#14538f; }
 
   #doneBar { display:none; padding:14px 12px calc(14px + env(safe-area-inset-bottom));
              background:#0f8f45; color:#fff; font-size:17px; font-weight:900; text-align:center; }
@@ -153,16 +156,14 @@
   <div id="hidPane" style="display:none;">
     <div id="hidState">リーダーの読み取り待ち</div>
     <div id="hidEcho">ここに読み取り結果が出ます</div>
-    <input id="hidInput" type="email" autocomplete="off" autocapitalize="off"
-           autocorrect="off" spellcheck="false" inputmode="email" />
-    <div id="imeStatus" class="ok">✓ かな対策：効いています</div>
+    <div id="imeStatus" class="ok">✓ 日本語入力の設定は変えなくて大丈夫です</div>
+
     <div class="row" style="margin-top:8px;">
-      <button id="btnImeFix">日本語入力を止める</button>
-      <button id="btnFocus" class="ghost">受付を再開</button>
+      <button id="btnImeFix" class="ghost">うまく読めないとき</button>
     </div>
+
     <div class="hint">
-      ・赤く「未設定」と出たら、上のボタンを押して手順どおり設定してください<br>
-      ・値が入らなくなったら「受付を再開」を押してください<br>
+      ・リーダーで読み取ると、自動でこの画面に結果が出ます（タップ不要）<br>
       ・リーダー側の設定：接続モード「BT HID」／ターミネーター「Enter」
     </div>
   </div>
@@ -217,20 +218,38 @@
 
 <div id="imeModal">
   <div class="box">
-    <h3>日本語入力を止める手順（iPhone）</h3>
+    <h3>うまく読み取れないとき</h3>
+    <p class="sub" style="font-size:15px;color:#16202c;font-weight:700;">
+      日本語キーボードを削除する必要はありません。<br>
+      下の順に確かめてください。
+    </p>
+
+    <h4 style="margin:14px 0 4px;font-size:16px;">1. リーダーがつながっているか</h4>
     <ol>
-      <li>ホーム画面で <b>設定</b> を開く</li>
-      <li><b>一般</b> → <b>キーボード</b></li>
-      <li><b>ハードウェアキーボード</b> をタップ</li>
-      <li>一番上の入力ソースを <b>English (US)</b> にする</li>
-      <li>このアプリに戻り、下の「設定しました」を押す</li>
+      <li>設定 → <b>Bluetooth</b> を開く</li>
+      <li>リーダーが <b>「接続済み」</b> になっているか確認</li>
+      <li>なっていなければタップして接続し直す</li>
+    </ol>
+
+    <h4 style="margin:14px 0 4px;font-size:16px;">2. リーダー側の設定</h4>
+    <ol>
+      <li>接続モードが <b>BT HID</b> になっているか</li>
+      <li>ターミネーターが <b>Enter</b> になっているか</li>
     </ol>
     <p class="sub">
-      リーダー本体に <b>Caps Lock</b> キーがあれば、それを押しても日本語⇔英語を切り替えられます。<br>
-      Androidの場合は、画面下のキーボードアイコンから英語キーボードを選んでください。
+      取扱説明書の設定用バーコードを読み取って変更します。
     </p>
-    <button id="imeDone">設定しました</button>
-    <button id="imeClose" class="ghost">あとで</button>
+
+    <h4 style="margin:14px 0 4px;font-size:16px;">3. 画面が反応しないとき</h4>
+    <p class="sub">
+      このアプリを一度閉じて、開き直してください。<br>
+      それでも読み取れない場合は「カメラ」モードに切り替えて作業を続けられます。
+    </p>
+
+    <div class="row" style="margin-top:12px;">
+      <button id="imeDone">直しました</button>
+      <button id="imeClose" style="background:#eceff3;color:#4a5560;">あとで</button>
+    </div>
   </div>
 </div>
 
@@ -270,7 +289,7 @@ function $(id){ return document.getElementById(id); }
 var iconEl=$('icon'), labelEl=$('label'), detailEl=$('detail');
 var countsEl=$('counts'), netBadge=$('netBadge'), diagEl=$('diag');
 var listEl=$('list'), listWrap=$('listWrap');
-var camWrap=$('camWrap'), hidPane=$('hidPane'), hidInput=$('hidInput');
+var camWrap=$('camWrap'), hidPane=$('hidPane');
 var hidEcho=$('hidEcho'), hidState=$('hidState'), imeStatus=$('imeStatus');
 var modeCam=$('modeCam'), modeHid=$('modeHid');
 var btnToggle=$('btnToggle'), btnTorch=$('btnTorch');
@@ -596,10 +615,16 @@ function sendQueued(manual){
   }).catch(function(e){
     sending = false;
     serverOk = (String(e.message||e).indexOf('GAS') >= 0) ? true : false;
-    backoff = backoff ? Math.min(backoff*2, BACKOFF_MAX_MS) : 60000;
+    var msg = String(e.message || e);
+    if (msg.indexOf('混み') >= 0) {
+      // 他の端末が書き込み中。すぐ短い間隔で再挑戦する
+      backoff = 20000 + Math.floor(Math.random() * 40000);   // 20〜60秒
+    } else {
+      backoff = backoff ? Math.min(backoff*2, BACKOFF_MAX_MS) : 60000;
+    }
     nextAllowedAt = Date.now() + backoff;
     lastSendAt = Date.now();
-    lastSendMsg = '失敗：' + (e.message || e);
+    lastSendMsg = '失敗：' + msg;
     paint();
   });
 }
@@ -622,7 +647,16 @@ function ping(){
     });
 }
 
-setInterval(function(){ sendQueued(false); }, SEND_INTERVAL_MS);
+// 大人数が同時に使うと送信が重なるため、端末ごとに時間をずらす
+function scheduleNextSend(){
+  var jitter = Math.floor(Math.random() * 120000) - 60000;   // ±60秒
+  var wait = Math.max(60000, SEND_INTERVAL_MS + jitter);
+  setTimeout(function(){
+    sendQueued(false);
+    scheduleNextSend();
+  }, wait);
+}
+scheduleNextSend();
 setInterval(renderDiag, 10000);
 window.addEventListener('online', function(){
   backoff = 0; nextAllowedAt = 0; sendQueued(true);
@@ -644,7 +678,13 @@ function updateAlert(un){
   if (un > 0) {
     if (!unsentSince) unsentSince = Date.now();
     alertCount.textContent = un;
-    alertBar.className = 'show';
+    alertBar.className = sending ? 'show sending' : 'show';
+    $('alertText').innerHTML = sending
+      ? '⟳ 送信中… 残り <span id="alertCount">' + un + '</span> 件<small>そのままお待ちください</small>'
+      : '⚠ 未送信 <span id="alertCount">' + un + '</span> 件<small>送信が完了するまで作業を終了しないでください</small>';
+    alertCount = $('alertCount');
+    $('alertSend').textContent = sending ? '送信中…' : '今すぐ送信';
+    $('alertSend').disabled = !!sending;
     doneBar.className = '';
     clearTimeout(doneTimer);
   } else {
@@ -676,92 +716,99 @@ window.addEventListener('resize', fitDock);
 
 // ============ リーダー（HID）入力 =============================
 // 入力欄は画面外に置き、受け取った文字だけを大きく表示します。
-var keyTimes = [], commitTimer = null, hidSeen = false;
-var imeNg = 0, cleanStreak = 0, composing = false;
+var keyBuf = '', keyTimes = [], commitTimer = null, hidSeen = false;
+var imeNg = 0, cleanStreak = 0;
 
 function hidShow(v){ hidEcho.textContent = v || 'ここに読み取り結果が出ます'; }
 
-// 日本語入力が効いているかを自動で判定して表示する
+// 入力欄にカーソルを置かないため、日本語変換そのものが働きません。
+// 万一おかしな文字が来た場合だけ、ここで知らせます。
 function markIme(bad){
   if (bad) { imeNg++; cleanStreak = 0; }
   else { cleanStreak++; if (cleanStreak >= 2) imeNg = 0; }
   if (imeNg > 0) {
     imeStatus.className = 'ng';
-    imeStatus.textContent = '⚠ 日本語入力が働いています → 下のボタンを押す';
+    imeStatus.textContent = '⚠ 文字が正しく届いていません（登録しません）';
     $('btnImeFix').className = '';
   } else {
     imeStatus.className = 'ok';
-    imeStatus.textContent = '✓ かな対策：効いています';
+    imeStatus.textContent = '✓ 日本語入力の設定は変えなくて大丈夫です';
     $('btnImeFix').className = 'ghost';
   }
 }
-// 生の文字列に全角やかなが混じっていたら「日本語入力が働いている」と判断
 function looksJapanese(raw){
   return /[ぁ-んァ-ヶ、。　０-９Ａ-Ｚａ-ｚ！-～]/.test(String(raw));
 }
 
-function hidCommit(force){
-  clearTimeout(commitTimer);
-  if (composing && !force) return;
-  var raw = hidInput.value;
-  var v = normalize(raw);
-  hidInput.value = ''; keyTimes = []; hidShow('');
-  if (!v) return;
-  if (!force && !isFast()) return;
-  markIme(looksJapanese(raw));
-  if (!hidSeen) { hidSeen = true; hidState.textContent = '✓ リーダー接続を確認しました'; }
-  onScan(v);
-}
 function isFast(){
   if (keyTimes.length < 3) return false;
   var gaps = 0;
   for (var i=1;i<keyTimes.length;i++) gaps += keyTimes[i] - keyTimes[i-1];
   return (gaps/(keyTimes.length-1)) < 90;
 }
-hidInput.addEventListener('keydown', function(e){
-  if (e.key === 'Enter' && !composing) { e.preventDefault(); hidCommit(true); return; }
-  if (e.key && e.key.length === 1) keyTimes.push(Date.now());
-});
-hidInput.addEventListener('input', function(){
-  hidShow(normalize(hidInput.value));
+
+function hidCommit(force){
   clearTimeout(commitTimer);
-  // 日本語変換が入ると文字が遅れて届くため、少し長めに待つ
-  commitTimer = setTimeout(function(){ hidCommit(false); }, composing ? 400 : 180);
-});
-hidInput.addEventListener('compositionstart', function(){
-  composing = true; markIme(true);
-});
-hidInput.addEventListener('compositionend', function(){
-  composing = false;
+  var raw = keyBuf;
+  keyBuf = ''; hidShow('');
+  var v = normalize(raw);
+  if (!v) { keyTimes = []; return; }
+  var fast = isFast();
+  keyTimes = [];
+  if (!force && !fast) return;
+
+  // 念のための保険。通常ここには入りません。
+  if (looksJapanese(raw)) {
+    markIme(true);
+    setState('err', '文字が正しく届きませんでした。読み直してください', true);
+    beepErr(); vibrate([140,90,140]);
+    return;
+  }
+
+  markIme(false);
+  if (mode !== 'hid') setMode('hid');
+  if (!hidSeen) { hidSeen = true; hidState.textContent = '✓ リーダー接続を確認しました'; }
+  onScan(v);
+}
+
+// リーダーは「キーボード」として文字を送ってくる。
+// どこにもカーソルを置かずに直接受け取るので、日本語変換に邪魔されない。
+document.addEventListener('keydown', function(e){
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  if ($('imeModal').className === 'show') return;
+  var tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA') return;   // 手入力中は邪魔しない
+
+  if (e.key === 'Enter') {
+    if (keyBuf) { e.preventDefault(); hidCommit(true); }
+    return;
+  }
+  if (!e.key || e.key.length !== 1) return;
+
+  e.preventDefault();
+  keyBuf += e.key;
+  keyTimes.push(Date.now());
+  hidShow(normalize(keyBuf));
   clearTimeout(commitTimer);
-  commitTimer = setTimeout(function(){ hidCommit(true); }, 120);
+  // ターミネーター（Enter）が設定されていない機種でも、入力が途切れたら確定する
+  commitTimer = setTimeout(function(){ hidCommit(false); }, 180);
 });
 
-// 入力欄の種類を切り替える（email欄はiOSで英数字入力になる）
-function applyImeGuard(){
-  try {
-    hidInput.type = 'email';
-    hidInput.inputMode = 'email';
-    hidInput.setAttribute('lang', 'en');
-  } catch(e){}
+// ---- 困ったときの案内 ----
+var lastGuideAt = 0;
+function openImeGuide(auto){
+  if (auto) {
+    if (Date.now() - lastGuideAt < 60000) return;
+    lastGuideAt = Date.now();
+  }
+  $('imeModal').className = 'show';
 }
-function focusHid(){
-  if (mode !== 'hid') return;
-  try { hidInput.focus(); } catch(e){}
-}
-$('btnImeFix').addEventListener('click', function(){ $('imeModal').className = 'show'; });
-$('imeClose').addEventListener('click', function(){ $('imeModal').className = ''; focusHid(); });
+$('btnImeFix').addEventListener('click', function(){ openImeGuide(false); });
+$('imeClose').addEventListener('click', function(){ $('imeModal').className = ''; });
 $('imeDone').addEventListener('click', function(){
   $('imeModal').className = '';
-  imeNg = 0; cleanStreak = 0;
-  applyImeGuard(); markIme(false); focusHid();
-  setState('ok','設定を反映しました。QRを1枚読んで確かめてください', true); beepOk();
-});
-$('btnFocus').addEventListener('click', function(){
-  hidInput.value=''; keyTimes=[]; hidShow(''); focusHid();
-});
-hidPane.addEventListener('click', function(e){
-  if (e.target.tagName !== 'BUTTON') focusHid();
+  imeNg = 0; cleanStreak = 0; markIme(false);
+  setState('ok','QRを1枚読んで確かめてください', true); beepOk();
 });
 
 // ============ モード切替 ======================================
@@ -776,7 +823,7 @@ function setMode(next){
   btnTorch.style.display = (cam && btnTorch.dataset.ok === '1') ? '' : 'none';
   zoomBar.className = (cam && zoomBar.dataset.ok === '1') ? 'show' : '';
   if (cam) { startScan(); }
-  else { stopScan(); hidInput.value=''; keyBuf=''; hidShow(''); focusHid(); }
+  else { stopScan(); keyBuf=''; keyTimes=[]; hidShow(''); }
   idleState(); fitDock();
 }
 modeCam.addEventListener('click', function(){ initAudio(); setMode('cam'); });
@@ -950,7 +997,18 @@ $('btnSendNow').addEventListener('click', function(){
   backoff = 0; nextAllowedAt = 0; sendQueued(true);
 });
 $('alertSend').addEventListener('click', function(){
-  backoff = 0; nextAllowedAt = 0; sendQueued(true);
+  backoff = 0; nextAllowedAt = 0;
+  initAudio();
+  // 押したことがすぐ分かるよう、画面全体を「送信中」に切り替える
+  setState('processing', '送信中… ' + unsentCount() + ' 件');
+  vibrate(60);
+  sendQueued(true).then(function(){
+    if (unsentCount() === 0) {
+      setState('ok', 'すべて送信しました', true); beepOk();
+    } else {
+      setState('err', '未送信が ' + unsentCount() + ' 件残っています', true); beepErr();
+    }
+  });
 });
 $('btnCsv').addEventListener('click', exportCsv);
 $('btnReload').addEventListener('click', loadAll);
@@ -1001,7 +1059,7 @@ $('btnSpeak').addEventListener('click', function(){
   rebuildIndex();
   purgeOld();
   setVolume(3);
-  applyImeGuard(); markIme(false);
+  markIme(false);
   setMode('cam');
   paint();
   fitDock();
